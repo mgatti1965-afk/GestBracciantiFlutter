@@ -1,0 +1,20 @@
+{
+  "folders": [
+    { "path": "." },
+    { "path": "apps/android-native" },
+    { "path": "apps/ios-native" },
+    { "path": "apps/web-native" },
+    { "path": "shared/contracts" },
+    { "path": "docs/migration" }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/.dart_tool": true,
+      "**/build": true
+    },
+    "search.exclude": {
+      "**/.dart_tool": true,
+      "**/build": true
+    }
+  }
+}

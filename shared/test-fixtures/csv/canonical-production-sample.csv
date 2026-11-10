@@ -1,0 +1,8 @@
+#GestBracciantiCSV;1
+entity;id;harvestYearId;isCurrent;notes;name;surname;phoneNumber;isArchived;workerId;date;morningStart;morningEnd;afternoonStart;afternoonEnd;totalHours;ordinaryHours;extraHours;holidayHours;hourlyRate;extraHourlyRate;holidayHourlyRate;totalAmount;ordinaryAmount;extraAmount;holidayAmount;isManualHoliday
+YEAR;2031;;1;"Vendemmia ""A""; blocco Nord, Lotto 7";;;;;;;;;;;;;;;;;;;;;;
+WORKER;401;2031;;;Paolo;Riva;;0;;;;;;;;;;;;;;;;;;
+WORKER;402;2031;;;Giada;Marini;333555777;0;;;;;;;;;;;;;;;;;;
+LOG;9402;2031;;;;;;;402;2031-09-12;;;;;9;8;1;0;10;13;16;93;80;13;0;0
+LOG;9401;2031;;;;;;;401;2031-09-10;;;;;7.5;7.5;0;0;10;13;16;75;75;0;0;0
+LOG;9403;2031;;;;;;;402;2031-09-11;;;;;8;0;0;8;10;13;16;128;0;0;128;1

@@ -1,0 +1,25 @@
+# Dependencies & Web build artifacts
+node_modules/
+dist/
+.vite/
+coverage/
+*.tsbuildinfo
+apps/web-native/vite.config.js
+apps/web-native/vite.config.d.ts
+
+# Android / Gradle
+.gradle/
+**/build/
+local.properties
+.idea/
+*.iml
+
+# iOS / Xcode (generated via XcodeGen)
+*.xcodeproj/
+DerivedData/
+*.xcuserdata/
+*.xcworkspace/xcshareddata/
+
+# OS / Editor temp files
+.DS_Store
+Thumbs.db

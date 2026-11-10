@@ -1,0 +1,10 @@
+#GestBracciantiCSV;1
+entity;id;harvestYearId;isCurrent;notes;name;surname;phoneNumber;isArchived;workerId;date;morningStart;morningEnd;afternoonStart;afternoonEnd;totalHours;ordinaryHours;extraHours;holidayHours;hourlyRate;extraHourlyRate;holidayHourlyRate;totalAmount;ordinaryAmount;extraAmount;holidayAmount;isManualHoliday
+YEAR;2025;;1;Vendemmia principale;;;;;;;;;;;;;;;;;;;;;;
+YEAR;2024;;0;Annata precedente;;;;;;;;;;;;;;;;;;;;;;
+WORKER;101;2025;;;Luca;Bianchi;333000001;0;;;;;;;;;;;;;;;;;;
+WORKER;102;2025;;;Sara;Neri;333000002;1;;;;;;;;;;;;;;;;;;
+WORKER;201;2024;;;Anna;Verdi;333000003;0;;;;;;;;;;;;;;;;;;
+LOG;9001;2025;;;;;;;101;2025-09-10;;;;;9;8;1;0;9.5;12;14;88;76;12;0;0
+LOG;9002;2025;;;;;;;102;2025-09-11;;;;;8;0;0;8;9.5;12;14;112;0;0;112;1
+LOG;9003;2024;;;;;;;201;2024-10-01;;;;;7.5;7.5;0;0;9;11;13;67.5;67.5;0;0;0

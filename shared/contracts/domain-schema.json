@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gestbraccianti.local/contracts/domain-schema.json",
+  "title": "GestBraccianti Domain Schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "harvestYears": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/HarvestYear" }
+    },
+    "workers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/Worker" }
+    },
+    "workerYearConfigs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/WorkerYearConfig" }
+    },
+    "workerGroups": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/WorkerGroup" }
+    },
+    "workerGroupMembers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/WorkerGroupMember" }
+    },
+    "workLogs": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/WorkLog" }
+    }
+  },
+  "$defs": {
+    "HarvestYear": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "isCurrent", "notes"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 2000, "maximum": 2100 },
+        "isCurrent": { "type": "boolean" },
+        "notes": { "type": "string" }
+      }
+    },
+    "Worker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "surname", "phoneNumber", "isArchived"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "surname": { "type": "string", "minLength": 1 },
+        "phoneNumber": { "type": "string" },
+        "isArchived": { "type": "boolean" }
+      }
+    },
+    "WorkerYearConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["workerId", "harvestYearId", "hourlyRate", "extraHourlyRate", "holidayHourlyRate"],
+      "properties": {
+        "workerId": { "type": "integer", "minimum": 1 },
+        "harvestYearId": { "type": "integer", "minimum": 2000, "maximum": 2100 },
+        "hourlyRate": { "type": "number", "minimum": 0 },
+        "extraHourlyRate": { "type": "number", "minimum": 0 },
+        "holidayHourlyRate": { "type": "number", "minimum": 0 }
+      }
+    },
+    "WorkerGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "yearId"],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "yearId": { "type": "integer", "minimum": 2000, "maximum": 2100 }
+      }
+    },
+    "WorkerGroupMember": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["groupId", "workerId"],
+      "properties": {
+        "groupId": { "type": "integer", "minimum": 1 },
+        "workerId": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "WorkLog": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "workerId",
+        "harvestYearId",
+        "date",
+        "morningStart",
+        "morningEnd",
+        "afternoonStart",
+        "afternoonEnd",
+        "totalHours",
+        "ordinaryHours",
+        "extraHours",
+        "holidayHours",
+        "hourlyRate",
+        "extraHourlyRate",
+        "holidayHourlyRate",
+        "totalAmount",
+        "ordinaryAmount",
+        "extraAmount",
+        "holidayAmount",
+        "isManualHoliday"
+      ],
+      "properties": {
+        "id": { "type": "integer", "minimum": 1 },
+        "workerId": { "type": "integer", "minimum": 1 },
+        "harvestYearId": { "type": "integer", "minimum": 2000, "maximum": 2100 },
+        "date": { "type": "integer", "description": "Unix epoch millis at local midnight" },
+        "morningStart": { "type": ["string", "null"], "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$" },
+        "morningEnd": { "type": ["string", "null"], "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$" },
+        "afternoonStart": { "type": ["string", "null"], "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$" },
+        "afternoonEnd": { "type": ["string", "null"], "pattern": "^([01]?[0-9]|2[0-3]):[0-5][0-9]$" },
+        "totalHours": { "type": "number", "minimum": 0 },
+        "ordinaryHours": { "type": "number", "minimum": 0 },
+        "extraHours": { "type": "number", "minimum": 0 },
+        "holidayHours": { "type": "number", "minimum": 0 },
+        "hourlyRate": { "type": "number", "minimum": 0 },
+        "extraHourlyRate": { "type": "number", "minimum": 0 },
+        "holidayHourlyRate": { "type": "number", "minimum": 0 },
+        "totalAmount": { "type": "number", "minimum": 0 },
+        "ordinaryAmount": { "type": "number", "minimum": 0 },
+        "extraAmount": { "type": "number", "minimum": 0 },
+        "holidayAmount": { "type": "number", "minimum": 0 },
+        "isManualHoliday": { "type": "boolean" }
+      }
+    }
+  }
+}

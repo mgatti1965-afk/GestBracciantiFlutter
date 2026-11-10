@@ -1,0 +1,6 @@
+#GestBracciantiCSV;1
+entity;id;harvestYearId;isCurrent;notes;name;surname;phoneNumber;isArchived;workerId;date;morningStart;morningEnd;afternoonStart;afternoonEnd;totalHours;ordinaryHours;extraHours;holidayHours;hourlyRate;extraHourlyRate;holidayHourlyRate;totalAmount;ordinaryAmount;extraAmount;holidayAmount;isManualHoliday
+YEAR;2030;;1;Annata primaria;;;;;;;;;;;;;;;;;;;;;;
+YEAR;2029;;1;Annata secondaria;;;;;;;;;;;;;;;;;;;;;;
+WORKER;301;2030;;;Lina;Conti;333400500;0;;;;;;;;;;;;;;;;;;
+LOG;9301;2030;;;;;;;301;2030-09-10;;;;;8;8;0;0;10;12;15;80;80;0;0;0

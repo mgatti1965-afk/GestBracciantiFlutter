@@ -1,0 +1,4 @@
+#GestBracciantiCSV;1
+entity;id;harvestYearId;isCurrent;notes;name;surname;phoneNumber;isArchived;workerId;date;morningStart;morningEnd;afternoonStart;afternoonEnd;totalHours;ordinaryHours;extraHours;holidayHours;hourlyRate;extraHourlyRate;holidayHourlyRate;totalAmount;ordinaryAmount;extraAmount;holidayAmount;isManualHoliday
+YEAR;2027;;1;Fixture non valida;;;;;;;;;;;;;;;;;;;;;;
+LOG;7001;2027;;;;;;;999;2027-09-10;;;;;8;8;0;0;10;13;16;80;80;0;0;0
