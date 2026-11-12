@@ -1,6 +1,6 @@
 import { type HarvestYear } from './harvestYear';
 import { type Worker } from './worker';
-import { createWorkLogDraft, type WorkLog } from './workLog';
+import { createWorkLogDraft, toMidnightMillisFromIso, type WorkLog } from './workLog';
 
 export interface CsvDataset {
   years: HarvestYear[];
@@ -73,14 +73,48 @@ function parseNumber(value: string, label: string): number {
   return parsed;
 }
 
-function parseOptionalNumber(value: string): number | undefined {
-  const normalized = value.trim().replace(',', '.');
-  if (!normalized) {
-    return undefined;
+function parseCsvDateMillis(raw: string, errorMessage: string): number {
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error(errorMessage);
   }
-  const parsed = Number(normalized);
-  if (!Number.isFinite(parsed)) {
-    return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    try {
+      return toMidnightMillisFromIso(trimmed);
+    } catch {
+      throw new Error(errorMessage);
+    }
+  }
+  if (/^\d{10,14}$/.test(trimmed)) {
+    const millis = Number(trimmed);
+    if (Number.isFinite(millis)) {
+      return millis;
+    }
+  }
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(trimmed)) {
+    const millis = new Date(trimmed).getTime();
+    if (Number.isFinite(millis)) {
+      return millis;
+    }
+  }
+  throw new Error(errorMessage);
+}
+
+function parseOptionalTimeSlot(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (!/^([01]?\d|2[0-3]):[0-5]\d$/.test(trimmed)) {
+    throw new Error(`Orario non valido: "${value}".`);
+  }
+  return trimmed;
+}
+
+function parseNonNegativeNumber(value: string, label: string): number {
+  const parsed = parseNumber(value, label);
+  if (parsed < 0) {
+    throw new Error(`${label} non puo essere negativo.`);
   }
   return parsed;
 }
@@ -130,52 +164,85 @@ function detectDelimiter(header: string): ';' | ',' {
 }
 
 function parseCsvRows(text: string): string[][] {
-  const lines = text.replace(/^\uFEFF/, '').split(/\r?\n/).filter((line) => line.trim() !== '');
-  if (lines.length === 0) {
+  let content = text.replace(/^\uFEFF/, '');
+  if (!content.trim()) {
     return [];
   }
 
-  let cursor = 0;
-  if (lines[0].trim().toLowerCase().startsWith('#gestbraccianticsv')) {
-    cursor = 1;
+  const firstNewline = content.search(/\r?\n/);
+  const firstLine = firstNewline === -1 ? content : content.slice(0, firstNewline);
+  if (firstLine.trim().toLowerCase().startsWith('#gestbraccianticsv')) {
+    if (firstNewline === -1) {
+      return [];
+    }
+    content = content.slice(firstNewline).replace(/^\r?\n/, '');
   }
 
-  if (cursor >= lines.length) {
+  content = content.replace(/^(\r?\n)+/, '');
+  if (!content.trim()) {
     return [];
   }
 
-  const delimiter = detectDelimiter(lines[cursor]);
+  const headerLineEnd = content.search(/\r?\n/);
+  const headerLine = headerLineEnd === -1 ? content : content.slice(0, headerLineEnd);
+  const delimiter = detectDelimiter(headerLine);
+
   const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = '';
+  let inQuotes = false;
 
-  for (let i = cursor; i < lines.length; i += 1) {
-    const line = lines[i];
-    const row: string[] = [];
-    let cell = '';
-    let inQuotes = false;
-
-    for (let j = 0; j < line.length; j += 1) {
-      const char = line[j];
-      if (char === '"') {
-        if (inQuotes && line[j + 1] === '"') {
-          cell += '"';
-          j += 1;
-        } else {
-          inQuotes = !inQuotes;
-        }
-        continue;
+  for (let i = 0; i < content.length; i += 1) {
+    const char = content[i];
+    if (char === '"') {
+      if (inQuotes && content[i + 1] === '"') {
+        cell += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
       }
-
-      if (char === delimiter && !inQuotes) {
-        row.push(cell);
-        cell = '';
-        continue;
-      }
-
-      cell += char;
+      continue;
     }
 
+    if (char === delimiter && !inQuotes) {
+      row.push(cell);
+      cell = '';
+      continue;
+    }
+
+    if ((char === '\r' || char === '\n') && !inQuotes) {
+      if (char === '\r' && content[i + 1] === '\n') {
+        i += 1;
+      }
+      row.push(cell);
+      cell = '';
+      const trimmedRow = row.map((x) => x.trim());
+      if (trimmedRow.some((x) => x !== '')) {
+        rows.push(trimmedRow);
+      }
+      row = [];
+      continue;
+    }
+
+    if (char === '\r' && content[i + 1] === '\n' && inQuotes) {
+      cell += '\n';
+      i += 1;
+      continue;
+    }
+
+    cell += char;
+  }
+
+  if (inQuotes) {
+    throw new Error('CSV non valido: virgolette non chiuse.');
+  }
+
+  if (cell !== '' || row.length > 0) {
     row.push(cell);
-    rows.push(row.map((x) => x.trim()));
+    const trimmedRow = row.map((x) => x.trim());
+    if (trimmedRow.some((x) => x !== '')) {
+      rows.push(trimmedRow);
+    }
   }
 
   return rows;
@@ -219,6 +286,9 @@ function parseCanonical(rows: string[][]): CsvDataset {
   const years: HarvestYear[] = [];
   const workers: Worker[] = [];
   const logs: WorkLog[] = [];
+  const seenYearIds = new Set<number>();
+  const seenWorkerIds = new Set<number>();
+  const seenLogIds = new Set<number>();
 
   for (let rowIndex = 1; rowIndex < rows.length; rowIndex += 1) {
     const row = rows[rowIndex];
@@ -237,6 +307,13 @@ function parseCanonical(rows: string[][]): CsvDataset {
 
     if (entity === 'YEAR') {
       const id = Math.trunc(parseNumber(get('id'), 'id annata'));
+      if (id < 2000 || id > 2100) {
+        throw new Error(`Annata fuori range alla riga ${rowIndex + 1}: ${id}.`);
+      }
+      if (seenYearIds.has(id)) {
+        throw new Error(`Annata duplicata alla riga ${rowIndex + 1}: ${id}.`);
+      }
+      seenYearIds.add(id);
       years.push({
         id,
         isCurrent: parseBoolean(get('isCurrent')),
@@ -247,11 +324,23 @@ function parseCanonical(rows: string[][]): CsvDataset {
 
     if (entity === 'WORKER') {
       const id = Math.trunc(parseNumber(get('id'), 'id bracciante'));
+      if (id < 1) {
+        throw new Error(`Id bracciante non valido alla riga ${rowIndex + 1}: ${id}.`);
+      }
+      if (seenWorkerIds.has(id)) {
+        throw new Error(`Bracciante duplicato alla riga ${rowIndex + 1}: ${id}.`);
+      }
+      const name = get('name').trim();
+      const surname = get('surname').trim();
+      if (!name || !surname) {
+        throw new Error(`Nome o cognome bracciante mancante alla riga ${rowIndex + 1}.`);
+      }
+      seenWorkerIds.add(id);
       workers.push({
         id,
         harvestYearId: Math.trunc(parseNumber(get('harvestYearId'), 'harvestYearId bracciante')),
-        name: get('name'),
-        surname: get('surname'),
+        name,
+        surname,
         phoneNumber: get('phoneNumber'),
         isArchived: parseBoolean(get('isArchived')),
       });
@@ -259,33 +348,37 @@ function parseCanonical(rows: string[][]): CsvDataset {
     }
 
     if (entity === 'LOG') {
-      const dateRaw = get('date');
-      const millis = parseOptionalNumber(dateRaw);
-      const date = millis !== undefined ? millis : new Date(dateRaw).getTime();
-      if (!Number.isFinite(date)) {
-        throw new Error(`Data log non valida alla riga ${rowIndex + 1}.`);
+      const id = Math.trunc(parseNumber(get('id'), 'id log'));
+      if (id < 1) {
+        throw new Error(`Id log non valido alla riga ${rowIndex + 1}: ${id}.`);
       }
+      if (seenLogIds.has(id)) {
+        throw new Error(`Log duplicato alla riga ${rowIndex + 1}: ${id}.`);
+      }
+      seenLogIds.add(id);
+
+      const date = parseCsvDateMillis(get('date'), `Data log non valida alla riga ${rowIndex + 1}.`);
 
       logs.push({
-        id: Math.trunc(parseNumber(get('id'), 'id log')),
+        id,
         workerId: Math.trunc(parseNumber(get('workerId'), 'workerId log')),
         harvestYearId: Math.trunc(parseNumber(get('harvestYearId'), 'harvestYearId log')),
         date,
-        morningStart: get('morningStart') || null,
-        morningEnd: get('morningEnd') || null,
-        afternoonStart: get('afternoonStart') || null,
-        afternoonEnd: get('afternoonEnd') || null,
-        totalHours: parseNumber(get('totalHours'), 'totalHours'),
-        ordinaryHours: parseNumber(get('ordinaryHours'), 'ordinaryHours'),
-        extraHours: parseNumber(get('extraHours'), 'extraHours'),
-        holidayHours: parseNumber(get('holidayHours'), 'holidayHours'),
-        hourlyRate: parseNumber(get('hourlyRate'), 'hourlyRate'),
-        extraHourlyRate: parseNumber(get('extraHourlyRate'), 'extraHourlyRate'),
-        holidayHourlyRate: parseNumber(get('holidayHourlyRate'), 'holidayHourlyRate'),
-        totalAmount: parseNumber(get('totalAmount'), 'totalAmount'),
-        ordinaryAmount: parseNumber(get('ordinaryAmount'), 'ordinaryAmount'),
-        extraAmount: parseNumber(get('extraAmount'), 'extraAmount'),
-        holidayAmount: parseNumber(get('holidayAmount'), 'holidayAmount'),
+        morningStart: parseOptionalTimeSlot(get('morningStart')),
+        morningEnd: parseOptionalTimeSlot(get('morningEnd')),
+        afternoonStart: parseOptionalTimeSlot(get('afternoonStart')),
+        afternoonEnd: parseOptionalTimeSlot(get('afternoonEnd')),
+        totalHours: parseNonNegativeNumber(get('totalHours'), 'totalHours'),
+        ordinaryHours: parseNonNegativeNumber(get('ordinaryHours'), 'ordinaryHours'),
+        extraHours: parseNonNegativeNumber(get('extraHours'), 'extraHours'),
+        holidayHours: parseNonNegativeNumber(get('holidayHours'), 'holidayHours'),
+        hourlyRate: parseNonNegativeNumber(get('hourlyRate'), 'hourlyRate'),
+        extraHourlyRate: parseNonNegativeNumber(get('extraHourlyRate'), 'extraHourlyRate'),
+        holidayHourlyRate: parseNonNegativeNumber(get('holidayHourlyRate'), 'holidayHourlyRate'),
+        totalAmount: parseNonNegativeNumber(get('totalAmount'), 'totalAmount'),
+        ordinaryAmount: parseNonNegativeNumber(get('ordinaryAmount'), 'ordinaryAmount'),
+        extraAmount: parseNonNegativeNumber(get('extraAmount'), 'extraAmount'),
+        holidayAmount: parseNonNegativeNumber(get('holidayAmount'), 'holidayAmount'),
         isManualHoliday: parseBoolean(get('isManualHoliday')),
       });
       continue;
@@ -520,11 +613,7 @@ function parseBackupMultiSection(rows: string[][]): CsvDataset {
       const dateRaw = getByAliases(record, ['data', 'date']);
       const totalHours = parseHoursValue(getByAliases(record, ['ore', 'oretotali', 'totalhours']), 'ore');
 
-      const parsedDateMillis = parseOptionalNumber(dateRaw);
-      const dateMillis = parsedDateMillis !== undefined ? parsedDateMillis : new Date(dateRaw).getTime();
-      if (!Number.isFinite(dateMillis)) {
-        throw new Error('Data log non valida nel backup multi-sezione.');
-      }
+      const dateMillis = parseCsvDateMillis(dateRaw, 'Data log non valida nel backup multi-sezione.');
 
       const hourlyRateRaw = getByAliases(record, ['tariffa', 'hourlyrate']);
       const fallbackRate = rateByWorkerYear.get(`${workerId}::${yearId}`);
@@ -556,6 +645,10 @@ function parseBackupMultiSection(rows: string[][]): CsvDataset {
 
       logs.push({
         ...draft,
+        morningStart: parseOptionalTimeSlot(getByAliases(record, ['min', 'morningstart'])),
+        morningEnd: parseOptionalTimeSlot(getByAliases(record, ['mout', 'morningend'])),
+        afternoonStart: parseOptionalTimeSlot(getByAliases(record, ['pin', 'afternoonstart'])),
+        afternoonEnd: parseOptionalTimeSlot(getByAliases(record, ['pout', 'afternoonend'])),
         id: nextLogId,
       });
       nextLogId += 1;

@@ -35,7 +35,7 @@ export interface CreateWorkLogInput {
   holidayHourlyRate: number;
 }
 
-function toMidnightMillisFromIso(dateIso: string): number {
+export function toMidnightMillisFromIso(dateIso: string): number {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateIso)) {
     throw new Error('Data non valida.');
   }
@@ -44,7 +44,11 @@ function toMidnightMillisFromIso(dateIso: string): number {
   const year = Number(yearStr);
   const month = Number(monthStr);
   const day = Number(dayStr);
-  return new Date(year, month - 1, day).getTime();
+  const parsed = new Date(year, month - 1, day);
+  if (parsed.getFullYear() !== year || parsed.getMonth() !== month - 1 || parsed.getDate() !== day) {
+    throw new Error('Data non valida.');
+  }
+  return parsed.getTime();
 }
 
 function round2(value: number): number {
@@ -57,9 +61,10 @@ export function createWorkLogDraft(input: CreateWorkLogInput): Omit<WorkLog, 'id
   }
 
   const date = toMidnightMillisFromIso(input.dateIso);
+  const totalHours = round2(input.totalHours);
 
   const calc = computeCompensation({
-    totalHours: input.totalHours,
+    totalHours,
     extraThreshold: input.extraThreshold,
     isHoliday: input.isManualHoliday,
     hourlyRate: input.hourlyRate,
@@ -75,7 +80,7 @@ export function createWorkLogDraft(input: CreateWorkLogInput): Omit<WorkLog, 'id
     morningEnd: null,
     afternoonStart: null,
     afternoonEnd: null,
-    totalHours: round2(input.totalHours),
+    totalHours,
     ordinaryHours: calc.ordinaryHours,
     extraHours: calc.extraHours,
     holidayHours: calc.holidayHours,

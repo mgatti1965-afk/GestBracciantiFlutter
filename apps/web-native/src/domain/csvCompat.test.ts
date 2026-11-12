@@ -105,8 +105,7 @@ describe('csvCompat', () => {
 
     expect(parsed.years[0]).toEqual(dataset.years[0]);
     expect(parsed.workers[0]).toEqual(dataset.workers[0]);
-    expect(parsed.logs[0].id).toBe(77);
-    expect(parsed.logs[0].totalAmount).toBe(100);
+    expect(parsed.logs[0]).toEqual(dataset.logs[0]);
   });
 
   it('export canonico include colonna descrizione tipologia in chiaro', () => {
@@ -280,7 +279,7 @@ describe('csvCompat', () => {
       {
         "logs": [
           {
-            "date": 1946764800000,
+            "date": 1946757600000,
             "extraHourlyRate": 13,
             "extraHours": 0,
             "harvestYearId": 2031,
@@ -295,7 +294,7 @@ describe('csvCompat', () => {
             "workerId": 401,
           },
           {
-            "date": 1946937600000,
+            "date": 1946930400000,
             "extraHourlyRate": 13,
             "extraHours": 1,
             "harvestYearId": 2031,
@@ -310,7 +309,7 @@ describe('csvCompat', () => {
             "workerId": 402,
           },
           {
-            "date": 1946851200000,
+            "date": 1946844000000,
             "extraHourlyRate": 13,
             "extraHours": 0,
             "harvestYearId": 2031,
@@ -429,4 +428,52 @@ describe('csvCompat', () => {
       expect(toRegressionShape(parsed)).toMatchSnapshot();
     });
   }
+
+  it('mantiene note multilinea quotate nel round-trip canonico', () => {
+    const dataset: CsvDataset = {
+      years: [{ id: 2026, isCurrent: true, notes: 'Riga 1\nRiga 2; "test"' }],
+      workers: [{ id: 1, harvestYearId: 2026, name: 'Mario', surname: 'Rossi', phoneNumber: '', isArchived: false }],
+      logs: [],
+    };
+
+    const csv = exportCsvDataset(dataset);
+    const parsed = importCsvDataset(csv);
+    expect(parsed.years[0].notes).toBe('Riga 1\nRiga 2; "test"');
+  });
+
+  it('rifiuta date malformate, anni fuori range o id duplicati nel CSV canonico', () => {
+    const header =
+      'entity;id;harvestYearId;isCurrent;notes;name;surname;phoneNumber;isArchived;workerId;date;morningStart;morningEnd;afternoonStart;afternoonEnd;totalHours;ordinaryHours;extraHours;holidayHours;hourlyRate;extraHourlyRate;holidayHourlyRate;totalAmount;ordinaryAmount;extraAmount;holidayAmount;isManualHoliday';
+
+    const badDate = [
+      header,
+      'YEAR;2026;;1;;;;;;;;;;;;;;;;;;;;;;;',
+      'WORKER;1;2026;;;Mario;Rossi;;0;;;;;;;;;;;;;;;;;;',
+      'LOG;10;2026;;;;;;;1;2025;;;;;8;8;0;0;10;12;14;80;80;0;0;0',
+    ].join('\n');
+    expect(() => importCsvDataset(badDate)).toThrow(/Data log non valida/i);
+
+    const dupWorker = [
+      header,
+      'YEAR;2026;;1;;;;;;;;;;;;;;;;;;;;;;;',
+      'WORKER;1;2026;;;Mario;Rossi;;0;;;;;;;;;;;;;;;;;;',
+      'WORKER;1;2026;;;Luca;Bianchi;;0;;;;;;;;;;;;;;;;;;',
+    ].join('\n');
+    expect(() => importCsvDataset(dupWorker)).toThrow(/duplicato/i);
+
+    const badYear = [header, 'YEAR;1999;;1;;;;;;;;;;;;;;;;;;;;;;;'].join('\n');
+    expect(() => importCsvDataset(badYear)).toThrow(/fuori range/i);
+  });
+
+  it('preserva le fasce orarie dal backup multi-sezione', () => {
+    const backup = readFileSync(
+      join(__dirname, '..', '..', '..', '..', 'shared', 'test-fixtures', 'csv', 'real-anonymized', 'GestBraccianti_Bkp_20260823_1310.csv'),
+      'utf-8',
+    );
+    const parsed = importCsvDataset(backup);
+    expect(parsed.logs[0].morningStart).toBe('08:00');
+    expect(parsed.logs[0].morningEnd).toBe('12:00');
+    expect(parsed.logs[0].afternoonStart).toBe('12:30');
+    expect(parsed.logs[0].afternoonEnd).toBe('17:00');
+  });
 });

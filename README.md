@@ -15,6 +15,13 @@ Nuovo workspace pulito per la migrazione a client nativi:
 - shared/test-fixtures
 - docs/migration
 
+## Rilascio Web (GitHub Pages)
+
+L'app Web (`apps/web-native`) viene compilata e pubblicata automaticamente su GitHub Pages tramite il workflow `.github/workflows/deploy-web.yml` ad ogni push su `main`:
+
+- URL pubblico: https://mgatti1965-afk.github.io/GestBracciantiFlutter/
+- Configurazione iniziale su GitHub: **Settings → Pages → Build and deployment → Source: GitHub Actions**
+
 ## Da dove partire
 
 1. Apri il workspace: GestBraccianti-native.code-workspace

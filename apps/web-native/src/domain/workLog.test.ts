@@ -49,4 +49,41 @@ describe('workLog domain', () => {
 
     expect(sorted.map((x) => x.id)).toEqual([3, 2, 1]);
   });
+
+  it('rifiuta date di calendario inesistenti', () => {
+    expect(() =>
+      createWorkLogDraft({
+        workerId: 1,
+        harvestYearId: 2026,
+        dateIso: '2026-02-31',
+        totalHours: 8,
+        isManualHoliday: false,
+        extraThreshold: 8,
+        hourlyRate: 10,
+        extraHourlyRate: 15,
+        holidayHourlyRate: 20,
+      }),
+    ).toThrow(/Data non valida/i);
+  });
+
+  it('mantiene coerenza tra ore arrotondate e calcolo compenso', () => {
+    const log = createWorkLogDraft({
+      workerId: 1,
+      harvestYearId: 2026,
+      dateIso: '2026-03-10',
+      totalHours: 8 + 1 / 3,
+      isManualHoliday: false,
+      extraThreshold: 8,
+      hourlyRate: 10,
+      extraHourlyRate: 15,
+      holidayHourlyRate: 20,
+    });
+
+    expect(log.totalHours).toBe(8.33);
+    expect(log.ordinaryHours).toBe(8);
+    expect(log.extraHours).toBe(0.33);
+    expect(log.ordinaryAmount).toBe(80);
+    expect(log.extraAmount).toBe(4.95);
+    expect(log.totalAmount).toBe(84.95);
+  });
 });
