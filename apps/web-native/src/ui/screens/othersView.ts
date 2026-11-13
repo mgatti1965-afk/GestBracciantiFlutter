@@ -301,14 +301,14 @@ export async function renderOthersView(params: {
 
       if (googleDriveService.isSignedIn()) {
         try {
-          await googleDriveService.uploadBackupFile(csvContent, filename);
+          await googleDriveService.uploadBackupFile(csvContent);
           downloadTextFile(filename, csvContent);
-          toast.show('Backup salvato su Google Drive e scaricato in locale!');
+          toast.show('Backup salvato su Google Drive e scaricato in Download!');
         } catch (uploadErr) {
           await repo.recordMutation();
           downloadTextFile(filename, csvContent);
           toast.show(
-            `Backup scaricato in locale, ma errore nel caricamento su Drive: ${
+            `Backup scaricato in Download, ma errore nel caricamento su Drive: ${
               uploadErr instanceof Error ? uploadErr.message : String(uploadErr)
             }`,
             true,
@@ -316,7 +316,7 @@ export async function renderOthersView(params: {
         }
       } else {
         downloadTextFile(filename, csvContent);
-        toast.show('Dati esportati e salvati nella cronologia locale!');
+        toast.show('Backup scaricato in Download e salvato nella cronologia locale!');
       }
 
       await refreshSelf();
