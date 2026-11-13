@@ -387,18 +387,52 @@ export async function renderApp(): Promise<HTMLElement> {
     });
   };
 
-  const verifyCloudAlignment = async (opts?: { showAlignedToast?: boolean }) => {
+  const renderClosedScreen = (message: string) => {
+    alignmentGeneration += 1;
+    isReadOnlyDueToAlignment = false;
+    try {
+      window.close();
+    } catch {
+      // Ignora se il browser blocca window.close()
+    }
+    shell.innerHTML = `
+      <div class="card" style="max-width: 440px; margin: 4rem auto; text-align: center; padding: 1.5rem;">
+        <h2 style="margin-bottom: 0.75rem;">Applicazione chiusa</h2>
+        <p class="muted" style="margin-bottom: 1.25rem;">${message}</p>
+        <button type="button" class="btn btn-primary" id="app-exit-reload-btn">Ricarica</button>
+      </div>
+    `;
+    shell.querySelector('#app-exit-reload-btn')?.addEventListener('click', () => {
+      window.location.reload();
+    });
+  };
+
+  const enterApp = async (readOnly: boolean) => {
+    isReadOnlyDueToAlignment = readOnly;
+    currentYear = await repo.getCurrentYear();
+    if (currentYear) {
+      syncYearStates(currentYear.id);
+      if (!readOnly) {
+        void checkBackupReminder();
+      }
+    }
+    await renderCurrentRoute();
+  };
+
+  const verifyCloudAlignment = async (opts?: { showAlignedToast?: boolean; fromStartup?: boolean }) => {
     const checkGen = ++alignmentGeneration;
     const latest = await googleDriveService.getLatestBackupFile();
     if (checkGen !== alignmentGeneration) {
       return;
     }
-    const settings = await repo.getSettings();
+    const [settings, existingYears] = await Promise.all([repo.getSettings(), repo.getAllYears()]);
     if (checkGen !== alignmentGeneration) {
       return;
     }
     if (!latest) {
-      if (isReadOnlyDueToAlignment) {
+      if (opts?.fromStartup) {
+        await enterApp(false);
+      } else if (isReadOnlyDueToAlignment) {
         isReadOnlyDueToAlignment = false;
         await renderCurrentRoute();
       }
@@ -412,10 +446,13 @@ export async function renderApp(): Promise<HTMLElement> {
     const localImportTimestamp = parseBackupHeaderDate(settings.lastImportDate);
 
     if (cloudTimestamp !== null && (localImportTimestamp === null || cloudTimestamp > localImportTimestamp)) {
-      isReadOnlyDueToAlignment = true;
-      activeTab = 'OTHERS';
-      await renderCurrentRoute();
+      if (!opts?.fromStartup) {
+        isReadOnlyDueToAlignment = true;
+        activeTab = 'OTHERS';
+        await renderCurrentRoute();
+      }
 
+      const hasLocalData = existingYears.length > 0;
       const modal = openModal({ title: 'Allineamento Dati Richiesto' });
       const p1 = document.createElement('p');
       p1.className = 'modal-text';
@@ -425,27 +462,24 @@ export async function renderApp(): Promise<HTMLElement> {
       p2.innerHTML = `Su Google Drive è presente un file di backup più recente (<strong>${formatImportDate(latest.headerDate)}</strong>) rispetto alla versione su questo dispositivo (${formatImportDate(settings.lastImportDate)}).`;
       const p3 = document.createElement('p');
       p3.className = 'modal-text muted small-note';
-      p3.textContent = 'Se non effettui l’import, l’applicazione rimarrà in sola visualizzazione (solo consultazione e stampe) per proteggere i dati.';
+      p3.textContent = hasLocalData
+        ? 'Se non effettui l’import, puoi solo visualizzare e stampare i dati locali (inserimenti e modifiche bloccati) oppure uscire.'
+        : 'Per proteggere i dati, è necessario importare il backup da Google Drive prima di proseguire.';
       modal.body.append(p1, p2, p3);
 
       const importBtn = document.createElement('button');
       importBtn.type = 'button';
       importBtn.className = 'btn btn-primary';
-      importBtn.textContent = 'Importa da Drive Ora';
+      importBtn.textContent = 'Importa da Drive';
       importBtn.addEventListener('click', async () => {
         importBtn.disabled = true;
         try {
           const res = await repo.importFullBackup(latest.content);
           alignmentGeneration += 1;
-          isReadOnlyDueToAlignment = false;
           modal.close();
           toast.show(`Dati importati dal cloud: ${res.years} annate, ${res.workers} braccianti, ${res.logs} log.`);
-          currentYear = await repo.getCurrentYear();
-          if (currentYear) {
-            syncYearStates(currentYear.id);
-            activeTab = 'DAILY';
-          }
-          await renderCurrentRoute();
+          activeTab = 'DAILY';
+          await enterApp(false);
         } catch (e) {
           toast.show('Errore importazione: ' + (e instanceof Error ? e.message : String(e)), true);
         } finally {
@@ -453,17 +487,39 @@ export async function renderApp(): Promise<HTMLElement> {
         }
       });
 
-      const viewOnlyBtn = document.createElement('button');
-      viewOnlyBtn.type = 'button';
-      viewOnlyBtn.className = 'btn btn-ghost';
-      viewOnlyBtn.textContent = 'Visualizza Soltanto';
-      viewOnlyBtn.addEventListener('click', () => modal.close());
+      const exitBtn = document.createElement('button');
+      exitBtn.type = 'button';
+      exitBtn.className = 'btn btn-ghost';
+      exitBtn.textContent = 'Esci';
+      exitBtn.addEventListener('click', () => {
+        modal.close();
+        renderClosedScreen(
+          "Per evitare disallineamenti è necessario importare i dati da Google Drive prima di utilizzare l'applicazione. Puoi chiudere questa finestra o ricaricare per riprovare.",
+        );
+      });
 
-      modal.footer.append(viewOnlyBtn, importBtn);
+      if (hasLocalData) {
+        const viewOnlyBtn = document.createElement('button');
+        viewOnlyBtn.type = 'button';
+        viewOnlyBtn.className = 'btn btn-secondary';
+        viewOnlyBtn.textContent = 'Visualizza Soltanto';
+        viewOnlyBtn.addEventListener('click', async () => {
+          modal.close();
+          if (opts?.fromStartup) {
+            activeTab = 'DAILY';
+            await enterApp(true);
+          }
+        });
+        modal.footer.append(exitBtn, viewOnlyBtn, importBtn);
+      } else {
+        modal.footer.append(exitBtn, importBtn);
+      }
       return;
     }
 
-    if (isReadOnlyDueToAlignment) {
+    if (opts?.fromStartup) {
+      await enterApp(false);
+    } else if (isReadOnlyDueToAlignment) {
       isReadOnlyDueToAlignment = false;
       await renderCurrentRoute();
     }
@@ -472,64 +528,93 @@ export async function renderApp(): Promise<HTMLElement> {
     }
   };
 
-  const checkDriveAlignmentOnStartup = async () => {
-    if (googleDriveService.isSignedIn()) {
+  const renderStartupDriveGate = async () => {
+    topBar.hidden = true;
+    navBar.hidden = true;
+    readOnlyBanner.hidden = true;
+
+    const runVerification = async () => {
+      mainContent.innerHTML = `
+        <div class="card" style="max-width: 460px; margin: 3.5rem auto; text-align: center; padding: 1.75rem;">
+          <h2 style="margin-bottom: 0.75rem;">Verifica Google Drive</h2>
+          <p class="muted">Verifica stato dei backup su Google Drive in corso...</p>
+        </div>
+      `;
       try {
-        await verifyCloudAlignment({ showAlignedToast: false });
-      } catch {
-        // Ignora errori di rete all'avvio se offline
+        await verifyCloudAlignment({ showAlignedToast: false, fromStartup: true });
+      } catch (err) {
+        const existingYears = await repo.getAllYears();
+        const hasLocalData = existingYears.length > 0;
+        const errMsg = err instanceof Error ? err.message : String(err);
+        mainContent.innerHTML = `
+          <div class="card" style="max-width: 460px; margin: 3.5rem auto; text-align: center; padding: 1.75rem;">
+            <h2 style="margin-bottom: 0.75rem;">Impossibile verificare Drive</h2>
+            <p class="muted" style="margin-bottom: 1.25rem;">${errMsg}</p>
+            <div style="display: flex; gap: 0.6rem; justify-content: center; flex-wrap: wrap;">
+              <button type="button" class="btn btn-ghost" id="gate-exit-btn">Esci</button>
+              ${
+                hasLocalData
+                  ? '<button type="button" class="btn btn-secondary" id="gate-viewonly-btn">Visualizza Soltanto</button>'
+                  : ''
+              }
+              <button type="button" class="btn btn-primary" id="gate-retry-btn">Riprova</button>
+            </div>
+          </div>
+        `;
+        mainContent.querySelector('#gate-retry-btn')?.addEventListener('click', () => {
+          void runVerification();
+        });
+        mainContent.querySelector('#gate-viewonly-btn')?.addEventListener('click', () => {
+          activeTab = 'DAILY';
+          void enterApp(true);
+        });
+        mainContent.querySelector('#gate-exit-btn')?.addEventListener('click', () => {
+          renderClosedScreen(
+            "Accesso a Google Drive non completato. Puoi chiudere questa finestra o ricaricare per riprovare.",
+          );
+        });
       }
+    };
+
+    if (googleDriveService.isSignedIn()) {
+      await runVerification();
       return;
     }
 
-    if (googleDriveService.hasPreviouslyConnected()) {
-      isReadOnlyDueToAlignment = true;
-      await renderCurrentRoute();
+    mainContent.innerHTML = `
+      <div class="card" style="max-width: 460px; margin: 3.5rem auto; text-align: center; padding: 1.75rem;">
+        <img src="./favicon.svg" alt="GestBraccianti" width="44" height="44" style="border-radius: 10px; margin-bottom: 0.75rem;" />
+        <h2 style="margin-bottom: 0.6rem;">Accesso a Google Drive</h2>
+        <p class="muted" style="margin-bottom: 1.35rem;">
+          Prima di iniziare è necessario accedere a Google Drive per verificare la presenza o lo stato dei backup.
+        </p>
+        <div style="display: flex; gap: 0.65rem; justify-content: center; flex-wrap: wrap;">
+          <button type="button" class="btn btn-ghost" id="startup-drive-exit-btn">Esci</button>
+          <button type="button" class="btn btn-primary" id="startup-drive-connect-btn">Connetti Google Drive</button>
+        </div>
+      </div>
+    `;
 
-      const modal = openModal({ title: 'Verifica Google Drive Richiesta' });
-      const p1 = document.createElement('p');
-      p1.className = 'modal-text';
-      p1.textContent =
-        'Prima di modificare i dati è necessario verificare se su Google Drive è presente un backup più recente.';
-      const p2 = document.createElement('p');
-      p2.className = 'modal-text muted small-note';
-      p2.textContent =
-        'Se preferisci non collegarti ora, tutte le variazioni resteranno bloccate (attive solo visualizzazione e stampe).';
-      modal.body.append(p1, p2);
+    const connectBtn = mainContent.querySelector<HTMLButtonElement>('#startup-drive-connect-btn');
+    connectBtn?.addEventListener('click', async () => {
+      connectBtn.disabled = true;
+      try {
+        await googleDriveService.signIn();
+        await runVerification();
+      } catch (err) {
+        toast.show(err instanceof Error ? err.message : 'Errore connessione Google Drive', true);
+        connectBtn.disabled = false;
+      }
+    });
 
-      const verifyBtn = document.createElement('button');
-      verifyBtn.type = 'button';
-      verifyBtn.className = 'btn btn-primary';
-      verifyBtn.textContent = 'Connetti e Verifica Drive';
-      verifyBtn.addEventListener('click', async () => {
-        verifyBtn.disabled = true;
-        try {
-          await googleDriveService.signIn();
-          modal.close();
-          await verifyCloudAlignment({ showAlignedToast: true });
-        } catch (err) {
-          toast.show(err instanceof Error ? err.message : 'Errore connessione Google Drive', true);
-        } finally {
-          verifyBtn.disabled = false;
-        }
-      });
-
-      const viewOnlyBtn = document.createElement('button');
-      viewOnlyBtn.type = 'button';
-      viewOnlyBtn.className = 'btn btn-ghost';
-      viewOnlyBtn.textContent = 'Visualizza Soltanto';
-      viewOnlyBtn.addEventListener('click', () => modal.close());
-
-      modal.footer.append(viewOnlyBtn, verifyBtn);
-    }
+    mainContent.querySelector('#startup-drive-exit-btn')?.addEventListener('click', () => {
+      renderClosedScreen(
+        "È necessario connettersi a Google Drive per utilizzare l'applicazione. Puoi chiudere questa finestra o ricaricare per riprovare.",
+      );
+    });
   };
 
-  if (currentYear) {
-    syncYearStates(currentYear.id);
-    void checkBackupReminder();
-  }
-  await renderCurrentRoute();
-  void checkDriveAlignmentOnStartup();
+  void renderStartupDriveGate();
 
   return shell;
 }
