@@ -1,6 +1,9 @@
 import {
   exportAndroidBackupCsv,
+  extractBackupHeaderDate,
+  formatBackupHeaderDate,
   importFullBackupCsv,
+  parseBackupHeaderDate,
   type FullBackupDataset,
 } from '../domain/backupCsv';
 import {
@@ -67,6 +70,10 @@ function normalizeSettings(raw: Partial<OwnerSettings> | undefined): OwnerSettin
     saveCountSinceBackup: Number.isFinite(raw?.saveCountSinceBackup)
       ? Math.max(0, Math.trunc(raw!.saveCountSinceBackup!))
       : 0,
+    lastImportDate: typeof raw?.lastImportDate === 'string' ? raw.lastImportDate : (raw?.lastImportDate ?? null),
+    lastMutationDate: Number.isFinite(raw?.lastMutationDate) ? Number(raw!.lastMutationDate) : 0,
+    lastExportDate: Number.isFinite(raw?.lastExportDate) ? Number(raw!.lastExportDate) : null,
+    googleDriveClientId: typeof raw?.googleDriveClientId === 'string' ? raw.googleDriveClientId : '',
   };
 }
 
@@ -86,16 +93,39 @@ export class AppRepository {
       const current = (await requestToPromise(store.get(SETTINGS_KEY))) as
         | ({ key: string } & Partial<OwnerSettings>)
         | undefined;
-      const merged = normalizeSettings({ ...current, ...partial });
+      const isInternalSyncUpdate =
+        'lastMutationDate' in partial || 'lastExportDate' in partial || 'lastImportDate' in partial;
+      const merged = normalizeSettings({
+        ...current,
+        ...partial,
+        ...(isInternalSyncUpdate ? {} : { lastMutationDate: Date.now() }),
+      });
       await requestToPromise(store.put({ key: SETTINGS_KEY, ...merged }));
       return merged;
     });
+  }
+
+  async recordMutation(): Promise<void> {
+    const settings = await this.getSettings();
+    await this.saveSettings({
+      saveCountSinceBackup: settings.saveCountSinceBackup + 1,
+      lastMutationDate: Date.now(),
+    });
+  }
+
+  async hasUnexportedChanges(): Promise<boolean> {
+    const settings = await this.getSettings();
+    if (!settings.lastExportDate) {
+      return settings.lastMutationDate > 0;
+    }
+    return settings.lastMutationDate > settings.lastExportDate;
   }
 
   async incrementSaveCount(): Promise<number> {
     const settings = await this.getSettings();
     const updated = await this.saveSettings({
       saveCountSinceBackup: settings.saveCountSinceBackup + 1,
+      lastMutationDate: Date.now(),
     });
     return updated.saveCountSinceBackup;
   }
@@ -183,6 +213,7 @@ export class AppRepository {
         }
       },
     );
+    await this.recordMutation();
   }
 
   async selectYear(yearId: number): Promise<void> {
@@ -255,6 +286,7 @@ export class AppRepository {
         await requestToPromise(yearsStore.delete(key));
       },
     );
+    await this.recordMutation();
   }
 
   async getAllWorkers(): Promise<AppWorker[]> {
@@ -374,6 +406,7 @@ export class AppRepository {
         }),
       );
     });
+    await this.recordMutation();
   }
 
   async deleteWorker(workerId: number): Promise<void> {
@@ -411,6 +444,7 @@ export class AppRepository {
         await requestToPromise(workersStore.delete(key));
       },
     );
+    await this.recordMutation();
   }
 
   /** Merges duplicate worker profiles according to Rule R6 (lowest ID is target). */
@@ -467,6 +501,7 @@ export class AppRepository {
         }
       },
     );
+    await this.recordMutation();
   }
 
   async copyWorkersFromPreviousYear(yearId: number): Promise<number> {
@@ -540,6 +575,7 @@ export class AppRepository {
       }
       await requestToPromise(store.add({ name: trimmed, yearId }));
     });
+    await this.recordMutation();
   }
 
   async deleteGroup(groupId: number): Promise<void> {
@@ -554,6 +590,7 @@ export class AppRepository {
       }
       await requestToPromise(groupsStore.delete(groupId));
     });
+    await this.recordMutation();
   }
 
   async setGroupMember(groupId: number, workerId: number, isMember: boolean): Promise<void> {
@@ -565,11 +602,12 @@ export class AppRepository {
         await requestToPromise(store.delete([groupId, workerId]));
       }
     });
+    await this.recordMutation();
   }
 
   async copyGroupsFromPreviousYear(yearId: number): Promise<number> {
     const prevYearId = yearId - 1;
-    return withTransaction([STORE_GROUPS, STORE_GROUP_MEMBERS], 'readwrite', async (tx) => {
+    const copied = await withTransaction([STORE_GROUPS, STORE_GROUP_MEMBERS], 'readwrite', async (tx) => {
       const groupsStore = tx.objectStore(STORE_GROUPS);
       const membersStore = tx.objectStore(STORE_GROUP_MEMBERS);
 
@@ -581,7 +619,7 @@ export class AppRepository {
       )) as WorkerGroup[];
       const curNames = new Set(curGroups.map((g) => g.name.toLocaleLowerCase('it')));
 
-      let copied = 0;
+      let count = 0;
       for (const oldGroup of prevGroups) {
         if (!curNames.has(oldGroup.name.toLocaleLowerCase('it'))) {
           const newGroupId = (await requestToPromise(
@@ -593,11 +631,15 @@ export class AppRepository {
           for (const member of oldMembers) {
             await requestToPromise(membersStore.put({ groupId: newGroupId, workerId: member.workerId }));
           }
-          copied += 1;
+          count += 1;
         }
       }
-      return copied;
+      return count;
     });
+    if (copied > 0) {
+      await this.recordMutation();
+    }
+    return copied;
   }
 
   async getLogsForYear(yearId: number): Promise<WorkLog[]> {
@@ -748,23 +790,26 @@ export class AppRepository {
     await withTransaction(STORE_LOGS, 'readwrite', async (tx) => {
       await requestToPromise(tx.objectStore(STORE_LOGS).delete(logId));
     });
+    await this.recordMutation();
   }
 
   async toggleManualHolidayForLog(logId: number): Promise<WorkLog> {
     const settings = await this.getSettings();
-    return withTransaction(STORE_LOGS, 'readwrite', async (tx) => {
+    const updated = await withTransaction(STORE_LOGS, 'readwrite', async (tx) => {
       const store = tx.objectStore(STORE_LOGS);
       const existing = (await requestToPromise(store.get(logId))) as WorkLog | undefined;
       if (!existing) {
         throw new Error('Registrazione non trovata.');
       }
-      const updated = recalculateWorkLog(
+      const recalculated = recalculateWorkLog(
         { ...existing, isManualHoliday: !existing.isManualHoliday },
         settings,
       );
-      await requestToPromise(store.put(updated));
-      return updated;
+      await requestToPromise(store.put(recalculated));
+      return recalculated;
     });
+    await this.recordMutation();
+    return updated;
   }
 
   async toggleGlobalHolidayForDate(
@@ -804,17 +849,24 @@ export class AppRepository {
     return { isOverridden: targetManualState, affectedCount };
   }
 
-  async exportFullBackup(saveInHistory = true): Promise<{ filename: string; csvContent: string }> {
+  async exportFullBackup(saveInHistory = true): Promise<{
+    filename: string;
+    csvContent: string;
+    exportDate: Date;
+    headerDate: string;
+  }> {
+    const exportDate = new Date();
     const dataset = await this.readFullDataset();
-    const csvContent = exportAndroidBackupCsv(dataset);
-    const filename = `GestBraccianti_Bkp_${formatBackupTimestamp(new Date())}.csv`;
+    const csvContent = exportAndroidBackupCsv(dataset, exportDate);
+    const headerDate = formatBackupHeaderDate(exportDate);
+    const filename = `GestBraccianti_Bkp_${formatBackupTimestamp(exportDate)}.csv`;
 
     if (saveInHistory) {
       await withTransaction([STORE_BACKUPS, STORE_SETTINGS], 'readwrite', async (tx) => {
         await requestToPromise(
           tx.objectStore(STORE_BACKUPS).add({
             filename,
-            createdAt: Date.now(),
+            createdAt: exportDate.getTime(),
             csvContent,
           }),
         );
@@ -822,18 +874,24 @@ export class AppRepository {
         const stored = (await requestToPromise(settingsStore.get(SETTINGS_KEY))) as
           | ({ key: string } & Partial<OwnerSettings>)
           | undefined;
-        const merged = normalizeSettings({ ...stored, saveCountSinceBackup: 0 });
+        const merged = normalizeSettings({
+          ...stored,
+          saveCountSinceBackup: 0,
+          lastExportDate: exportDate.getTime(),
+          lastImportDate: headerDate,
+        });
         await requestToPromise(settingsStore.put({ key: SETTINGS_KEY, ...merged }));
       });
     }
 
-    return { filename, csvContent };
+    return { filename, csvContent, exportDate, headerDate };
   }
 
   async importFullBackup(
     csvText: string,
-  ): Promise<{ years: number; workers: number; logs: number; groups: number }> {
+  ): Promise<{ years: number; workers: number; logs: number; groups: number; importDate: string }> {
     const parsed = importFullBackupCsv(csvText);
+    const importDate = parsed.backupHeaderDate ?? formatBackupHeaderDate(new Date());
 
     // Create an automatic safety backup if existing data is present.
     const existingYears = await this.getAllYears();
@@ -850,6 +908,8 @@ export class AppRepository {
         );
       });
     }
+
+    const currentSettings = await this.getSettings();
 
     await withTransaction(
       [
@@ -881,7 +941,14 @@ export class AppRepository {
         await requestToPromise(
           settingsStore.put({
             key: SETTINGS_KEY,
-            ...normalizeSettings({ ...parsed.settings, saveCountSinceBackup: 0 }),
+            ...normalizeSettings({
+              ...parsed.settings,
+              googleDriveClientId: currentSettings.googleDriveClientId,
+              saveCountSinceBackup: 0,
+              lastImportDate: importDate,
+              lastExportDate: Date.now(),
+              lastMutationDate: 0,
+            }),
           }),
         );
 
@@ -920,6 +987,7 @@ export class AppRepository {
       workers: parsed.workers.length,
       logs: parsed.logs.length,
       groups: parsed.groups.length,
+      importDate,
     };
   }
 

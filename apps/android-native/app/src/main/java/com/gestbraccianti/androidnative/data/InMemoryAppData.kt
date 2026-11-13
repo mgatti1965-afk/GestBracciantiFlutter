@@ -2,6 +2,7 @@ package com.gestbraccianti.androidnative.data
 
 import com.gestbraccianti.androidnative.domain.HarvestYear
 import com.gestbraccianti.androidnative.domain.HarvestYearRepository
+import com.gestbraccianti.androidnative.domain.SyncMetadata
 import com.gestbraccianti.androidnative.domain.WorkLog
 import com.gestbraccianti.androidnative.domain.WorkLogRepository
 import com.gestbraccianti.androidnative.domain.Worker
@@ -9,6 +10,8 @@ import com.gestbraccianti.androidnative.domain.WorkerRepository
 import java.time.LocalDate
 
 class InMemoryAppData : HarvestYearRepository, WorkerRepository, WorkLogRepository {
+  private var syncMetadata = SyncMetadata()
+
   private val years = listOf(
     HarvestYear(id = 2026, isCurrent = true, notes = "Annata seed"),
   )
@@ -39,4 +42,14 @@ class InMemoryAppData : HarvestYearRepository, WorkerRepository, WorkLogReposito
   override fun workersForYear(yearId: Int): List<Worker> = workers.filter { it.harvestYearId == yearId }
 
   override fun logsForYear(yearId: Int): List<WorkLog> = logs.filter { it.harvestYearId == yearId }
+
+  fun getSyncMetadata(): SyncMetadata = syncMetadata
+
+  fun recordMutation() {
+    syncMetadata = syncMetadata.copy(lastMutationDate = System.currentTimeMillis())
+  }
+
+  fun updateLastImportDate(dateStr: String?) {
+    syncMetadata = syncMetadata.copy(lastImportDate = dateStr)
+  }
 }

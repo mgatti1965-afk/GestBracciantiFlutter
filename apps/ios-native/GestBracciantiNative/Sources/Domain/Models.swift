@@ -27,3 +27,9 @@ struct WorkLog: Identifiable {
     let totalAmount: Double
     let isManualHoliday: Bool
 }
+
+struct SyncMetadata {
+    var lastImportDate: String? = nil
+    var lastMutationDate: Date? = nil
+    var lastExportDate: Date? = nil
+}

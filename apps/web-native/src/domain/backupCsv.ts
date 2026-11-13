@@ -20,6 +20,7 @@ import type { WorkLog } from './workLog';
 import { toMidnightMillisFromIso } from './workLog';
 
 export interface FullBackupDataset {
+  backupHeaderDate?: string | null;
   settings: OwnerSettings;
   years: HarvestYear[];
   workers: AppWorker[];
@@ -137,8 +138,43 @@ function parseFestiveDaysType(value: number | undefined): FestiveDaysType {
   return 3;
 }
 
+export function formatBackupHeaderDate(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const yyyy = date.getFullYear();
+  const mm = pad(date.getMonth() + 1);
+  const dd = pad(date.getDate());
+  const hh = pad(date.getHours());
+  const min = pad(date.getMinutes());
+  const ss = pad(date.getSeconds());
+  return `${yyyy}-${mm}-${dd} ${hh}:${min}:${ss}`;
+}
+
+export function extractBackupHeaderDate(text: string): string | null {
+  const cleaned = text.replace(/^\uFEFF/, '').trimStart();
+  const firstLine = cleaned.split(/\r?\n/)[0]?.trim();
+  if (firstLine && /^#\s*GESTBRACCIANTI_BKP;/i.test(firstLine)) {
+    const parts = firstLine.split(';');
+    return parts[1]?.trim() || null;
+  }
+  return null;
+}
+
+export function parseBackupHeaderDate(headerDateStr: string | null | undefined): number | null {
+  if (!headerDateStr) return null;
+  const trimmed = headerDateStr.trim();
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})$/);
+  if (match) {
+    const [_, y, m, d, hh, min, ss] = match;
+    const date = new Date(Number(y), Number(m) - 1, Number(d), Number(hh), Number(min), Number(ss));
+    return Number.isFinite(date.getTime()) ? date.getTime() : null;
+  }
+  const parsed = Date.parse(trimmed);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function isMultiSectionBackup(lines: string[]): boolean {
-  const firstNonEmpty = lines.find((l) => l.trim() !== '')?.trim() ?? '';
+  const uncommentedLines = lines.filter((l) => !l.trim().startsWith('#'));
+  const firstNonEmpty = uncommentedLines.find((l) => l.trim() !== '')?.trim() ?? '';
   if (firstNonEmpty.toLowerCase().startsWith('#gestbraccianticsv')) {
     return false;
   }
@@ -150,9 +186,10 @@ function isMultiSectionBackup(lines: string[]): boolean {
 }
 
 /** Exports the full application state using the exact multi-section CSV format of the Android app. */
-export function exportAndroidBackupCsv(dataset: FullBackupDataset): string {
+export function exportAndroidBackupCsv(dataset: FullBackupDataset, exportDate: Date = new Date()): string {
   const lines: string[] = [];
 
+  lines.push(`# GESTBRACCIANTI_BKP;${formatBackupHeaderDate(exportDate)}`);
   lines.push('TIPO;CHIAVE;VALORE');
   lines.push(`S;owner_name;${dataset.settings.ownerName.replace(/[\r\n;]/g, ' ').trim()}`);
   lines.push(`S;owner_surname;${dataset.settings.ownerSurname.replace(/[\r\n;]/g, ' ').trim()}`);
@@ -252,6 +289,8 @@ export function importFullBackupCsv(text: string): FullBackupDataset {
     throw new Error('File CSV vuoto.');
   }
 
+  const backupHeaderDate = extractBackupHeaderDate(text);
+
   if (!isMultiSectionBackup(lines)) {
     const legacy = importCsvDataset(cleaned);
     const workersMap = new Map<number, AppWorker>();
@@ -281,6 +320,7 @@ export function importFullBackupCsv(text: string): FullBackupDataset {
     }
 
     return {
+      backupHeaderDate,
       settings: { ...DEFAULT_OWNER_SETTINGS },
       years: legacy.years,
       workers: [...workersMap.values()],
@@ -307,7 +347,7 @@ export function importFullBackupCsv(text: string): FullBackupDataset {
 
   for (const rawLine of lines) {
     const trimmed = rawLine.trim();
-    if (!trimmed) {
+    if (!trimmed || trimmed.startsWith('#')) {
       continue;
     }
 
@@ -575,6 +615,7 @@ export function importFullBackupCsv(text: string): FullBackupDataset {
   }
 
   return {
+    backupHeaderDate,
     settings,
     years,
     workers,

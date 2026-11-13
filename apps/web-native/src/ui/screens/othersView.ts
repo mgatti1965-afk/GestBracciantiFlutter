@@ -1,4 +1,6 @@
 import type { AppRepository } from '../../data/appRepository';
+import { googleDriveService } from '../../data/googleDriveService';
+import { parseBackupHeaderDate } from '../../domain/backupCsv';
 import type { FestiveDaysType } from '../../domain/calc';
 import {
   downloadTextFile,
@@ -16,9 +18,10 @@ export async function renderOthersView(params: {
 }): Promise<void> {
   const { container, repo, toast, onDatabaseChanged } = params;
 
-  const [settings, backups] = await Promise.all([
+  const [settings, backups, hasUnexported] = await Promise.all([
     repo.getSettings(),
     repo.getBackupHistory(),
+    repo.hasUnexportedChanges(),
   ]);
 
   container.innerHTML = '';
@@ -109,26 +112,228 @@ export async function renderOthersView(params: {
   sunCheck.addEventListener('change', updateFestiveDays);
   screen.appendChild(calcCard);
 
-  // 3. Esportazione e Backup (CSV)
+  // 3. Sincronizzazione Google Drive
+  const isDriveSignedIn = googleDriveService.isSignedIn();
+  const driveEmail = googleDriveService.getUserEmail();
+
+  const driveCard = document.createElement('article');
+  driveCard.className = 'card section-card';
+  driveCard.innerHTML = `
+    <h3>Google Drive e Sincronizzazione Cloud</h3>
+    <p class="muted small-note">Gestione automatica del file di backup su Google Drive per allineare smartphone, tablet e PC.</p>
+
+    <div style="margin: 0.75rem 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+      <div>
+        ${
+          isDriveSignedIn
+            ? `<span class="badge badge-success">🟢 Connesso: ${escapeHtml(driveEmail ?? 'Account Google')}</span>`
+            : '<span class="badge badge-warning">⚪ Non connesso a Google Drive</span>'
+        }
+      </div>
+      <div>
+        ${
+          isDriveSignedIn
+            ? '<button type="button" class="btn btn-ghost btn-sm" id="drive-disconnect-btn">Disconnetti</button>'
+            : '<button type="button" class="btn btn-primary btn-sm" id="drive-connect-btn">Connetti Google Drive</button>'
+        }
+      </div>
+    </div>
+
+    <div class="sync-info-grid">
+      <div class="sync-info-item">
+        <span class="sync-info-label">Data Ultimo Import Locale</span>
+        <span class="sync-info-value" id="sync-last-import">${escapeHtml(settings.lastImportDate ?? 'Nessuno')}</span>
+      </div>
+      <div class="sync-info-item">
+        <span class="sync-info-label">Data Ultima Variazione Locale</span>
+        <span class="sync-info-value" id="sync-last-mutation">${
+          settings.lastMutationDate ? escapeHtml(formatDateTime(settings.lastMutationDate)) : 'Nessuna'
+        }</span>
+      </div>
+      <div class="sync-info-item">
+        <span class="sync-info-label">Data Ultimo Export Locale</span>
+        <span class="sync-info-value" id="sync-last-export">${
+          settings.lastExportDate ? escapeHtml(formatDateTime(settings.lastExportDate)) : 'Nessuno'
+        }</span>
+      </div>
+    </div>
+
+    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem;">
+      <button type="button" class="btn btn-secondary btn-sm" id="drive-check-alignment-btn" ${!isDriveSignedIn ? 'disabled' : ''}>
+        Controlla Allineamento Cloud
+      </button>
+      <button type="button" class="btn btn-secondary btn-sm" id="drive-import-latest-btn" ${!isDriveSignedIn ? 'disabled' : ''}>
+        Importa Ultimo da Drive
+      </button>
+    </div>
+
+    <details style="margin-top: 0.85rem; font-size: 0.82rem;">
+      <summary style="cursor: pointer; color: var(--muted); font-weight: 700;">Configurazione Avanzata Client ID Google</summary>
+      <div style="margin-top: 0.5rem;">
+        <label class="field">
+          <span>Google Client ID (OAuth SPA)</span>
+          <input id="drive-client-id" type="text" value="${escapeHtml(settings.googleDriveClientId)}" placeholder="Es. 123456789-xyz.apps.googleusercontent.com" />
+        </label>
+        <button type="button" class="btn btn-ghost btn-sm" id="save-client-id-btn" style="margin-top: 0.4rem;">Salva Client ID</button>
+      </div>
+    </details>
+  `;
+
+  // Drive Connect / Disconnect
+  driveCard.querySelector('#drive-connect-btn')?.addEventListener('click', async () => {
+    try {
+      await googleDriveService.signIn(settings.googleDriveClientId);
+      toast.show('Collegamento a Google Drive effettuato con successo!');
+      await renderOthersView(params);
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Errore connessione Google Drive', true);
+    }
+  });
+
+  driveCard.querySelector('#drive-disconnect-btn')?.addEventListener('click', async () => {
+    googleDriveService.clearSession();
+    toast.show('Disconnesso da Google Drive.');
+    await renderOthersView(params);
+  });
+
+  // Save client id
+  const clientIdInput = driveCard.querySelector<HTMLInputElement>('#drive-client-id');
+  const saveClientIdBtn = driveCard.querySelector<HTMLButtonElement>('#save-client-id-btn');
+  saveClientIdBtn?.addEventListener('click', async () => {
+    const val = (clientIdInput?.value ?? '').trim();
+    await repo.saveSettings({ googleDriveClientId: val });
+    toast.show('Client ID salvato.');
+    await renderOthersView(params);
+  });
+
+  // Check alignment
+  driveCard.querySelector('#drive-check-alignment-btn')?.addEventListener('click', async () => {
+    try {
+      toast.show('Verifica in corso su Google Drive...');
+      const latest = await googleDriveService.getLatestBackupFile();
+      if (!latest) {
+        toast.show('Nessun file di backup trovato nella cartella GestBraccianti_Backup su Drive.');
+        return;
+      }
+      const cloudTimestamp = latest.headerTimestamp;
+      const localImportTimestamp = parseBackupHeaderDate(settings.lastImportDate);
+
+      if (cloudTimestamp !== null && (localImportTimestamp === null || cloudTimestamp > localImportTimestamp)) {
+        showConfirmDialog({
+          title: 'Serve Allineamento',
+          message: `Su Google Drive è presente un file più recente:\n\n• File Cloud: "${latest.name}"\n• Data Cloud: ${latest.headerDate ?? 'Sconosciuta'}\n• Data Locale: ${settings.lastImportDate ?? 'Nessun import'}\n\nÈ necessario procedere all'import dei dati per allineare questo dispositivo.`,
+          confirmLabel: 'Importa Ora da Drive',
+          cancelLabel: 'Chiudi',
+          onConfirm: async () => {
+            await repo.importFullBackup(latest.content);
+            toast.show('Dati importati e allineati con Google Drive!');
+            await onDatabaseChanged();
+          },
+        });
+      } else {
+        toast.show(`Archivio già allineato! Ultimo backup su Drive: ${latest.headerDate ?? latest.name}`);
+      }
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Errore durante la verifica con Drive.', true);
+    }
+  });
+
+  // Import latest from drive
+  driveCard.querySelector('#drive-import-latest-btn')?.addEventListener('click', async () => {
+    try {
+      toast.show('Ricerca ultimo backup su Google Drive...');
+      const latest = await googleDriveService.getLatestBackupFile();
+      if (!latest) {
+        toast.show('Nessun file di backup trovato nella cartella GestBraccianti_Backup su Drive.', true);
+        return;
+      }
+      showConfirmDialog({
+        title: 'Conferma Import da Google Drive',
+        message: `Attenzione: verrà scaricato e importato il backup "${latest.name}" (Data: ${latest.headerDate ?? 'sconosciuta'}). Questa operazione sostituirà tutti i dati attuali con quelli del cloud (verrà prima salvato un backup automatico interno). Confermi?`,
+        confirmLabel: 'Conferma Import',
+        danger: true,
+        onConfirm: async () => {
+          const res = await repo.importFullBackup(latest.content);
+          toast.show(`Dati importati dal cloud: ${res.years} annate, ${res.workers} braccianti, ${res.logs} log.`);
+          await onDatabaseChanged();
+        },
+      });
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Errore import da Google Drive.', true);
+    }
+  });
+
+  screen.appendChild(driveCard);
+
+  // 4. Esportazione e Backup (CSV)
   const csvCard = document.createElement('article');
   csvCard.className = 'card section-card';
   csvCard.innerHTML = `
     <h3>Esportazione e Backup (CSV)</h3>
-    <p class="muted small-note">Formato GestBraccianti compatibile al 100% con i backup Android (annate, braccianti, tariffe, gruppi, orari e impostazioni).</p>
+    <p class="muted small-note">Formato GestBraccianti compatibile al 100% con i backup Android e iOS (annate, braccianti, tariffe, gruppi, orari e impostazioni).</p>
+    
+    ${
+      hasUnexported
+        ? `<div style="margin-bottom: 0.85rem; padding: 0.65rem 0.85rem; background: #fff3cd; color: #856404; border-radius: 8px; font-weight: 700; font-size: 0.85rem; border: 1px solid #ffeeba;">
+            ⚠️ Sono presenti modifiche locali non ancora esportate. Effettua l'Export per aggiornare il backup.
+           </div>`
+        : ''
+    }
+
     <div class="two-col-grid">
       <button type="button" class="btn btn-primary" id="others-export-btn">Esporta Backup CSV</button>
       <label class="btn btn-secondary file-btn">
-        Importa Backup CSV
+        Importa Backup CSV Locale
         <input type="file" id="others-import-input" accept=".csv,text/csv" hidden />
       </label>
     </div>
   `;
 
   csvCard.querySelector('#others-export-btn')?.addEventListener('click', async () => {
-    const { filename, csvContent } = await repo.exportFullBackup(true);
-    downloadTextFile(filename, csvContent);
-    toast.show('Dati esportati e salvati nella cronologia backup!');
-    await renderOthersView(params);
+    try {
+      // Se Google Drive è connesso, verificare prima che il file sul cloud sia <= data del file sul DB
+      if (googleDriveService.isSignedIn()) {
+        toast.show('Verifica allineamento con Google Drive prima dello scarico...');
+        const latestCloud = await googleDriveService.getLatestBackupFile();
+        if (latestCloud) {
+          const cloudTimestamp = latestCloud.headerTimestamp;
+          const localImportTimestamp = parseBackupHeaderDate(settings.lastImportDate);
+          if (cloudTimestamp !== null && localImportTimestamp !== null && cloudTimestamp > localImportTimestamp) {
+            showConfirmDialog({
+              title: 'Export Bloccato: Serve Allineamento',
+              message: `Impossibile procedere con lo scarico: su Google Drive è presente un backup più recente (${latestCloud.headerDate}) rispetto alla data di allineamento del tuo archivio (${settings.lastImportDate}).\n\nÈ necessario procedere prima all'import dei dati per non sovrascrivere le modifiche apportate da un altro dispositivo.`,
+              confirmLabel: 'Ho capito',
+              cancelLabel: '',
+              onConfirm: () => {},
+            });
+            return;
+          }
+        }
+      }
+
+      const { filename, csvContent } = await repo.exportFullBackup(true);
+      downloadTextFile(filename, csvContent);
+
+      if (googleDriveService.isSignedIn()) {
+        try {
+          await googleDriveService.uploadBackupFile(filename, csvContent);
+          toast.show('Backup scaricato in locale e salvato su Google Drive!');
+        } catch (uploadErr) {
+          toast.show(
+            `Backup scaricato in locale, ma errore nel caricamento su Drive: ${
+              uploadErr instanceof Error ? uploadErr.message : String(uploadErr)
+            }`,
+            true,
+          );
+        }
+      } else {
+        toast.show('Dati esportati e salvati nella cronologia backup!');
+      }
+
+      await renderOthersView(params);
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Errore durante l’esportazione.', true);
+    }
   });
 
   const importInput = csvCard.querySelector<HTMLInputElement>('#others-import-input')!;
@@ -156,7 +361,7 @@ export async function renderOthersView(params: {
   });
   screen.appendChild(csvCard);
 
-  // 4. Cronologia Backup Interni
+  // 5. Cronologia Backup Interni
   const historyCard = document.createElement('article');
   historyCard.className = 'card section-card';
   historyCard.innerHTML = '<h3>Cronologia Backup Interni</h3>';
@@ -211,7 +416,7 @@ export async function renderOthersView(params: {
   }
   screen.appendChild(historyCard);
 
-  // 5. Area Manutenzione (Reset DB)
+  // 6. Area Manutenzione (Reset DB)
   const dangerCard = document.createElement('article');
   dangerCard.className = 'card section-card danger-zone-card';
   dangerCard.innerHTML = `

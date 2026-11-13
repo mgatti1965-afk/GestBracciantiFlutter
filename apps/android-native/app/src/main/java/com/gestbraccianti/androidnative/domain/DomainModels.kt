@@ -29,3 +29,9 @@ data class WorkLog(
   val totalAmount: Double,
   val isManualHoliday: Boolean,
 )
+
+data class SyncMetadata(
+  val lastImportDate: String? = null,
+  val lastMutationDate: Long = 0L,
+  val lastExportDate: Long? = null,
+)

@@ -54,6 +54,10 @@ export interface OwnerSettings {
   festiveDaysType: FestiveDaysType;
   globalFestiveDates: number[];
   saveCountSinceBackup: number;
+  lastImportDate: string | null;
+  lastMutationDate: number;
+  lastExportDate: number | null;
+  googleDriveClientId: string;
 }
 
 export interface BackupHistoryItem {
@@ -70,6 +74,10 @@ export const DEFAULT_OWNER_SETTINGS: OwnerSettings = {
   festiveDaysType: 3,
   globalFestiveDates: [],
   saveCountSinceBackup: 0,
+  lastImportDate: null,
+  lastMutationDate: 0,
+  lastExportDate: null,
+  googleDriveClientId: '',
 };
 
 export function toLocalMidnightMillis(date: Date): number {

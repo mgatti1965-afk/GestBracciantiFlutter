@@ -3,11 +3,51 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   exportAndroidBackupCsv,
+  extractBackupHeaderDate,
+  formatBackupHeaderDate,
   importFullBackupCsv,
+  parseBackupHeaderDate,
   type FullBackupDataset,
 } from './backupCsv';
 
 describe('backupCsv Android compatibility', () => {
+  it('scrive la prima riga con data+ora e la reimporta correttamente', () => {
+    const fixedDate = new Date(2026, 10, 13, 8, 30, 0); // 2026-11-13 08:30:00
+    const dataset: FullBackupDataset = {
+      settings: {
+        ownerName: 'Mario',
+        ownerSurname: 'Rossi',
+        extraHoursThreshold: 8,
+        festiveDaysType: 3,
+        globalFestiveDates: [],
+        saveCountSinceBackup: 0,
+        lastImportDate: null,
+        lastMutationDate: 0,
+        lastExportDate: null,
+        googleDriveClientId: '',
+      },
+      years: [{ id: 2026, isCurrent: true, notes: '' }],
+      workers: [{ id: 1, surname: 'Rossi', name: 'Mario', phoneNumber: '', isArchived: false }],
+      configs: [{ workerId: 1, harvestYearId: 2026, hourlyRate: 10, extraHourlyRate: 12, holidayHourlyRate: 15 }],
+      groups: [],
+      groupMembers: [],
+      plantations: [],
+      logs: [],
+    };
+
+    const csv = exportAndroidBackupCsv(dataset, fixedDate);
+    const firstLine = csv.split('\n')[0];
+    expect(firstLine).toBe('# GESTBRACCIANTI_BKP;2026-11-13 08:30:00');
+
+    expect(extractBackupHeaderDate(csv)).toBe('2026-11-13 08:30:00');
+    expect(parseBackupHeaderDate('2026-11-13 08:30:00')).toBe(fixedDate.getTime());
+
+    const imported = importFullBackupCsv(csv);
+    expect(imported.backupHeaderDate).toBe('2026-11-13 08:30:00');
+    expect(imported.workers).toHaveLength(1);
+    expect(imported.years).toHaveLength(1);
+  });
+
   it('esporta e reimporta il formato completo S/W/Y/C/L/G/X', () => {
     const dataset: FullBackupDataset = {
       settings: {
@@ -17,6 +57,10 @@ describe('backupCsv Android compatibility', () => {
         festiveDaysType: 3,
         globalFestiveDates: [],
         saveCountSinceBackup: 0,
+        lastImportDate: null,
+        lastMutationDate: 0,
+        lastExportDate: null,
+        googleDriveClientId: '',
       },
       years: [{ id: 2026, isCurrent: true, notes: 'Vendemmia\nLotto 1' }],
       workers: [

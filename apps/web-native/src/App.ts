@@ -1,4 +1,6 @@
 import { AppRepository } from './data/appRepository';
+import { googleDriveService } from './data/googleDriveService';
+import { parseBackupHeaderDate } from './domain/backupCsv';
 import { toLocalMidnightMillis } from './domain/models';
 import {
   renderDailyLoggingView,
@@ -38,6 +40,10 @@ export async function renderApp(): Promise<HTMLElement> {
   topBar.className = 'app-topbar';
   topBar.hidden = true;
 
+  const readOnlyBanner = document.createElement('div');
+  readOnlyBanner.className = 'banner-readonly';
+  readOnlyBanner.hidden = true;
+
   const mainContent = document.createElement('main');
   mainContent.className = 'app-main';
 
@@ -50,12 +56,13 @@ export async function renderApp(): Promise<HTMLElement> {
   toastHost.className = 'toast-host';
   const toast = createToastController(toastHost);
 
-  shell.append(topBar, mainContent, navBar, toastHost);
+  shell.append(topBar, readOnlyBanner, mainContent, navBar, toastHost);
 
   let currentYear = await repo.getCurrentYear();
   let activeTab: MainTab = 'DAILY';
   let activeDayDetailDate: number | null = null;
   let backupReminderShown = false;
+  let isReadOnlyDueToAlignment = false;
 
   const dailyState: DailyLoggingState = {
     yearId: currentYear?.id ?? new Date().getFullYear(),
@@ -123,14 +130,30 @@ export async function renderApp(): Promise<HTMLElement> {
     }
   };
 
-  const renderChrome = () => {
+  const renderChrome = async () => {
     const hasYear = Boolean(currentYear);
     topBar.hidden = !hasYear;
     navBar.hidden = !hasYear;
 
+    if (isReadOnlyDueToAlignment) {
+      readOnlyBanner.hidden = false;
+      readOnlyBanner.innerHTML = `
+        <span>🔒 <strong>Modalità Sola Lettura:</strong> è necessario procedere all'import dei dati da "Varie" per abilitare le modifiche.</span>
+        <button type="button" class="banner-btn" id="banner-goto-varie">Vai a Varie</button>
+      `;
+      readOnlyBanner.querySelector('#banner-goto-varie')?.addEventListener('click', async () => {
+        activeTab = 'OTHERS';
+        await renderCurrentRoute();
+      });
+    } else {
+      readOnlyBanner.hidden = true;
+    }
+
     if (!currentYear) {
       return;
     }
+
+    const hasUnexported = await repo.hasUnexportedChanges();
 
     topBar.innerHTML = `
       <div class="topbar-inner">
@@ -139,11 +162,21 @@ export async function renderApp(): Promise<HTMLElement> {
           ${currentYear.notes ? `<span class="topbar-sub">${currentYear.notes}</span>` : ''}
         </div>
         <div class="topbar-actions">
+          ${
+            hasUnexported
+              ? '<button type="button" class="export-needed-badge" id="topbar-export-needed" title="Variazioni non salvate su cloud. Clicca per andare a Varie">⚠️ Da scaricare</button>'
+              : ''
+          }
           <button type="button" class="btn btn-ghost btn-icon" id="topbar-help" title="Guida contestuale">?</button>
           <button type="button" class="btn btn-ghost btn-sm" id="topbar-switch-year" title="Cambia o gestisci annata">Cambia Annata</button>
         </div>
       </div>
     `;
+
+    topBar.querySelector('#topbar-export-needed')?.addEventListener('click', async () => {
+      activeTab = 'OTHERS';
+      await renderCurrentRoute();
+    });
 
     // Replace textContent safely for notes in case of special characters
     const subEl = topBar.querySelector<HTMLElement>('.topbar-sub');
@@ -162,19 +195,20 @@ export async function renderApp(): Promise<HTMLElement> {
       await renderCurrentRoute();
     });
 
-    const navItems: Array<{ id: MainTab; label: string; icon: string }> = [
+    const navItems: Array<{ id: MainTab; label: string; icon: string; showBadge?: boolean }> = [
       { id: 'DAILY', label: 'Ore', icon: '📅' },
       { id: 'SUMMARY', label: 'Riepilogo', icon: '📊' },
       { id: 'WORKERS', label: 'Braccianti', icon: '👥' },
-      { id: 'OTHERS', label: 'Varie', icon: '⚙️' },
+      { id: 'OTHERS', label: 'Varie', icon: '⚙️', showBadge: hasUnexported },
     ];
 
     navBar.innerHTML = navItems
       .map(
         (item) => `
-      <button type="button" class="nav-item ${activeTab === item.id ? 'active' : ''}" data-tab="${item.id}">
+      <button type="button" class="nav-item ${activeTab === item.id ? 'active' : ''}" data-tab="${item.id}" style="position: relative;">
         <span class="nav-icon" aria-hidden="true">${item.icon}</span>
         <span class="nav-label">${item.label}</span>
+        ${item.showBadge ? '<span class="nav-item-badge-dot" title="Modifiche non esportate"></span>' : ''}
       </button>
     `,
       )
@@ -196,8 +230,23 @@ export async function renderApp(): Promise<HTMLElement> {
     });
   };
 
+  const applyReadOnlyRestrictions = () => {
+    if (!isReadOnlyDueToAlignment || activeTab === 'OTHERS') {
+      return;
+    }
+    mainContent
+      .querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
+        'button:not(.btn-ghost):not(.tab-pill):not([data-action="view"]):not(#topbar-help), input, select',
+      )
+      .forEach((el) => {
+        if (el.classList.contains('nav-item')) return;
+        el.setAttribute('disabled', 'true');
+        el.setAttribute('title', 'Sola visualizzazione: è necessario allineare i dati importando da Varie');
+      });
+  };
+
   const renderCurrentRoute = async () => {
-    renderChrome();
+    await renderChrome();
 
     if (!currentYear) {
       await renderYearSelectionView({
@@ -212,6 +261,7 @@ export async function renderApp(): Promise<HTMLElement> {
           await renderCurrentRoute();
         },
       });
+      applyReadOnlyRestrictions();
       return;
     }
 
@@ -247,6 +297,7 @@ export async function renderApp(): Promise<HTMLElement> {
           },
         });
       }
+      applyReadOnlyRestrictions();
       return;
     }
 
@@ -258,6 +309,7 @@ export async function renderApp(): Promise<HTMLElement> {
         yearId,
         state: summaryState,
       });
+      applyReadOnlyRestrictions();
       return;
     }
 
@@ -269,6 +321,7 @@ export async function renderApp(): Promise<HTMLElement> {
         yearId,
         state: registryState,
       });
+      applyReadOnlyRestrictions();
       return;
     }
 
@@ -277,6 +330,7 @@ export async function renderApp(): Promise<HTMLElement> {
       repo,
       toast,
       onDatabaseChanged: async () => {
+        isReadOnlyDueToAlignment = false;
         currentYear = await repo.getCurrentYear();
         if (currentYear) {
           syncYearStates(currentYear.id);
@@ -287,11 +341,73 @@ export async function renderApp(): Promise<HTMLElement> {
     });
   };
 
+  const checkDriveAlignmentOnStartup = async () => {
+    if (!googleDriveService.isSignedIn()) {
+      return;
+    }
+    try {
+      const settings = await repo.getSettings();
+      const latest = await googleDriveService.getLatestBackupFile();
+      if (!latest) return;
+      const cloudTimestamp = latest.headerTimestamp;
+      const localImportTimestamp = parseBackupHeaderDate(settings.lastImportDate);
+      if (cloudTimestamp !== null && (localImportTimestamp === null || cloudTimestamp > localImportTimestamp)) {
+        isReadOnlyDueToAlignment = true;
+        activeTab = 'OTHERS';
+        await renderCurrentRoute();
+
+        const modal = openModal({ title: 'Allineamento Dati Richiesto' });
+        const p1 = document.createElement('p');
+        p1.className = 'modal-text';
+        p1.innerHTML = `<strong>È necessario procedere all'import dei dati.</strong>`;
+        const p2 = document.createElement('p');
+        p2.className = 'modal-text';
+        p2.innerHTML = `Su Google Drive è presente un file di backup più recente (<strong>${latest.headerDate ?? latest.name}</strong>) rispetto alla versione su questo dispositivo (${settings.lastImportDate ?? 'nessun import'}).`;
+        const p3 = document.createElement('p');
+        p3.className = 'modal-text muted small-note';
+        p3.textContent = 'Se non effettui l’import, l’applicazione rimarrà in sola visualizzazione per proteggere i dati da modifiche disallineate.';
+        modal.body.append(p1, p2, p3);
+
+        const importBtn = document.createElement('button');
+        importBtn.type = 'button';
+        importBtn.className = 'btn btn-primary';
+        importBtn.textContent = 'Importa da Drive Ora';
+        importBtn.addEventListener('click', async () => {
+          modal.close();
+          try {
+            const res = await repo.importFullBackup(latest.content);
+            isReadOnlyDueToAlignment = false;
+            toast.show(`Dati importati dal cloud: ${res.years} annate, ${res.workers} braccianti, ${res.logs} log.`);
+            currentYear = await repo.getCurrentYear();
+            if (currentYear) {
+              syncYearStates(currentYear.id);
+              activeTab = 'DAILY';
+            }
+            await renderCurrentRoute();
+          } catch (e) {
+            toast.show('Errore importazione: ' + (e instanceof Error ? e.message : String(e)), true);
+          }
+        });
+
+        const viewOnlyBtn = document.createElement('button');
+        viewOnlyBtn.type = 'button';
+        viewOnlyBtn.className = 'btn btn-ghost';
+        viewOnlyBtn.textContent = 'Visualizza Soltanto';
+        viewOnlyBtn.addEventListener('click', () => modal.close());
+
+        modal.footer.append(viewOnlyBtn, importBtn);
+      }
+    } catch {
+      // Ignora errori di rete all'avvio
+    }
+  };
+
   if (currentYear) {
     syncYearStates(currentYear.id);
     void checkBackupReminder();
   }
   await renderCurrentRoute();
+  void checkDriveAlignmentOnStartup();
 
   return shell;
 }

@@ -39,4 +39,14 @@ final class InMemoryAppData: HarvestYearRepository, WorkerRepository, WorkLogRep
     func logsForYear(_ yearId: Int) -> [WorkLog] {
         logs.filter { $0.harvestYearId == yearId }
     }
+
+    private(set) var syncMetadata = SyncMetadata()
+
+    func recordMutation() {
+        syncMetadata.lastMutationDate = Date()
+    }
+
+    func updateLastImportDate(_ dateStr: String?) {
+        syncMetadata.lastImportDate = dateStr
+    }
 }
