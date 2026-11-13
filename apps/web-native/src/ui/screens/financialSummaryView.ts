@@ -157,11 +157,24 @@ export async function renderFinancialSummaryView(params: {
 
   const movePeriod = (delta: number) => {
     const d = new Date(state.referenceDate);
-    if (state.filterPeriod === 'MONTH') d.setMonth(d.getMonth() + delta);
-    else if (state.filterPeriod === 'WEEK') d.setDate(d.getDate() + delta * 7);
-    else if (state.filterPeriod === 'DAY') d.setDate(d.getDate() + delta);
-    if (d.getFullYear() === yearId) {
-      state.referenceDate = d.getTime();
+    if (state.filterPeriod === 'MONTH') {
+      const currentMonth = d.getMonth();
+      const targetMonth = currentMonth + delta;
+      if (targetMonth >= 0 && targetMonth <= 11) {
+        state.referenceDate = new Date(yearId, targetMonth, 1).getTime();
+      }
+    } else if (state.filterPeriod === 'WEEK') {
+      const newD = new Date(d.getFullYear(), d.getMonth(), d.getDate() + delta * 7);
+      const mon = getMondayStart(newD.getTime());
+      const sun = new Date(mon.getFullYear(), mon.getMonth(), mon.getDate() + 6);
+      if (mon.getFullYear() === yearId || sun.getFullYear() === yearId) {
+        state.referenceDate = newD.getTime();
+      }
+    } else if (state.filterPeriod === 'DAY') {
+      const newD = new Date(d.getFullYear(), d.getMonth(), d.getDate() + delta);
+      if (newD.getFullYear() === yearId) {
+        state.referenceDate = newD.getTime();
+      }
     }
   };
 

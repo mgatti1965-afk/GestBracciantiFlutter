@@ -2,6 +2,7 @@ import { extractBackupHeaderDate, parseBackupHeaderDate } from '../domain/backup
 import {
   DEFAULT_GOOGLE_CLIENT_ID,
   DRIVE_BACKUP_FOLDER_NAME,
+  DRIVE_BACKUP_FILE_NAME,
   DRIVE_SCOPE,
 } from './driveConfig';
 
@@ -13,6 +14,8 @@ declare global {
           initTokenClient(config: {
             client_id: string;
             scope: string;
+            prompt?: string;
+            hint?: string;
             callback: (response: GoogleTokenResponse) => void;
             error_callback?: (err: unknown) => void;
           }): GoogleTokenClient;
@@ -30,7 +33,7 @@ interface GoogleTokenResponse {
 }
 
 interface GoogleTokenClient {
-  requestAccessToken(overrideConfig?: { prompt?: string }): void;
+  requestAccessToken(overrideConfig?: { prompt?: string; login_hint?: string; hint?: string }): void;
 }
 
 export interface DriveBackupFileInfo {
@@ -45,6 +48,7 @@ export interface DriveBackupFileInfo {
 const TOKEN_STORAGE_KEY = 'gb_drive_access_token';
 const EXPIRY_STORAGE_KEY = 'gb_drive_token_expiry';
 const EMAIL_STORAGE_KEY = 'gb_drive_user_email';
+const LAST_EMAIL_STORAGE_KEY = 'gb_drive_last_email';
 
 export class GoogleDriveService {
   private tokenClient: GoogleTokenClient | null = null;
@@ -101,20 +105,27 @@ export class GoogleDriveService {
   }
 
   getUserEmail(): string | null {
-    return sessionStorage.getItem(EMAIL_STORAGE_KEY);
+    return sessionStorage.getItem(EMAIL_STORAGE_KEY) || localStorage.getItem(LAST_EMAIL_STORAGE_KEY);
+  }
+
+  getLastUserEmail(): string | null {
+    return localStorage.getItem(LAST_EMAIL_STORAGE_KEY) || sessionStorage.getItem(EMAIL_STORAGE_KEY);
   }
 
   isSignedIn(): boolean {
     return Boolean(this.getAccessToken());
   }
 
-  clearSession(): void {
+  clearSession(forgetAccount: boolean = false): void {
     const token = sessionStorage.getItem(TOKEN_STORAGE_KEY);
     sessionStorage.removeItem(TOKEN_STORAGE_KEY);
     sessionStorage.removeItem(EXPIRY_STORAGE_KEY);
     sessionStorage.removeItem(EMAIL_STORAGE_KEY);
+    if (forgetAccount) {
+      localStorage.removeItem(LAST_EMAIL_STORAGE_KEY);
+    }
     this.cachedFolderId = null;
-    if (token && window.google?.accounts?.oauth2?.revoke) {
+    if (forgetAccount && token && window.google?.accounts?.oauth2?.revoke) {
       try {
         window.google.accounts.oauth2.revoke(token);
       } catch {
@@ -123,18 +134,27 @@ export class GoogleDriveService {
     }
   }
 
-  async signIn(customClientId?: string): Promise<{ email: string | null; accessToken: string }> {
+  async signIn(
+    customClientId?: string,
+    options?: { selectAccount?: boolean },
+  ): Promise<{ email: string | null; accessToken: string }> {
     const clientId = this.getEffectiveClientId(customClientId);
     if (!clientId) {
       throw new Error('Google Client ID non configurato. Inserisci il Client ID nella scheda Varie.');
     }
     await this.loadGisScript();
 
+    const savedEmail = !options?.selectAccount
+      ? localStorage.getItem(LAST_EMAIL_STORAGE_KEY) || sessionStorage.getItem(EMAIL_STORAGE_KEY)
+      : null;
+
     return new Promise((resolve, reject) => {
       try {
+        const promptValue = options?.selectAccount ? 'select_account' : '';
         this.tokenClient = window.google!.accounts!.oauth2!.initTokenClient({
           client_id: clientId,
           scope: DRIVE_SCOPE,
+          prompt: promptValue,
           callback: async (resp: GoogleTokenResponse) => {
             if (resp.error || !resp.access_token) {
               reject(new Error(resp.error || 'Autenticazione con Google fallita o annullata.'));
@@ -155,6 +175,7 @@ export class GoogleDriveService {
                 userEmail = info.email ?? null;
                 if (userEmail) {
                   sessionStorage.setItem(EMAIL_STORAGE_KEY, userEmail);
+                  localStorage.setItem(LAST_EMAIL_STORAGE_KEY, userEmail);
                 }
               }
             } catch {
@@ -168,7 +189,14 @@ export class GoogleDriveService {
           },
         });
 
-        this.tokenClient.requestAccessToken({ prompt: '' });
+        const reqConfig: { prompt?: string; login_hint?: string } = {
+          prompt: promptValue,
+        };
+        if (savedEmail) {
+          reqConfig.login_hint = savedEmail;
+        }
+
+        this.tokenClient.requestAccessToken(reqConfig);
       } catch (err) {
         reject(err instanceof Error ? err : new Error('Impossibile avviare il login Google'));
       }
@@ -231,7 +259,7 @@ export class GoogleDriveService {
     const folderId = await this.getOrCreateAppFolder();
     const query = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
     const res = await this.fetchWithAuth(
-      `https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=createdTime desc,name desc&fields=files(id,name,createdTime,modifiedTime,size)&pageSize=50`,
+      `https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=modifiedTime desc,createdTime desc,name desc&fields=files(id,name,createdTime,modifiedTime,size)&pageSize=50`,
     );
     if (!res.ok) {
       const errText = await res.text();
@@ -273,42 +301,98 @@ export class GoogleDriveService {
     };
   }
 
-  async uploadBackupFile(filename: string, csvContent: string): Promise<{ id: string; name: string }> {
+  async uploadBackupFile(
+    csvContent: string,
+    targetFilename = DRIVE_BACKUP_FILE_NAME,
+  ): Promise<{ id: string; name: string }> {
     const folderId = await this.getOrCreateAppFolder();
+    const existingFiles = await this.listBackupFiles();
 
-    const boundary = '-------GestBracciantiBoundary' + Math.random().toString(36).substring(2);
-    const delimiter = `\r\n--${boundary}\r\n`;
-    const closeDelimiter = `\r\n--${boundary}--`;
+    // Se esiste già un file (o file vecchi creati in precedenza con timestamp),
+    // aggiorniamo il file principale e ripuliamo eventuali duplicati per lasciare un unico file.
+    const targetFile = existingFiles.find((f) => f.name === targetFilename) || existingFiles[0];
 
-    const metadata = {
-      name: filename,
-      parents: [folderId],
-      mimeType: 'text/csv',
-    };
+    if (targetFile) {
+      if (targetFile.name !== targetFilename) {
+        try {
+          await this.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${targetFile.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: targetFilename }),
+          });
+        } catch {
+          // Ignora errori di rename non bloccanti
+        }
+      }
 
-    const multipartRequestBody =
-      delimiter +
-      'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
-      JSON.stringify(metadata) +
-      delimiter +
-      'Content-Type: text/csv; charset=UTF-8\r\n\r\n' +
-      csvContent +
-      closeDelimiter;
+      const updateRes = await this.fetchWithAuth(
+        `https://www.googleapis.com/upload/drive/v3/files/${targetFile.id}?uploadType=media`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'text/csv; charset=UTF-8',
+          },
+          body: csvContent,
+        },
+      );
 
-    const res = await this.fetchWithAuth('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-      method: 'POST',
-      headers: {
-        'Content-Type': `multipart/related; boundary=${boundary}`,
-      },
-      body: multipartRequestBody,
-    });
+      if (!updateRes.ok) {
+        const errText = await updateRes.text();
+        throw new Error(`Errore aggiornamento file su Drive: ${errText}`);
+      }
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`Errore caricamento file su Google Drive: ${errText}`);
+      // Rimuoviamo eventuali file duplicati/vecchi nella cartella per non riempire Drive
+      for (const extra of existingFiles) {
+        if (extra.id !== targetFile.id) {
+          try {
+            await this.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${extra.id}`, {
+              method: 'DELETE',
+            });
+          } catch {
+            // Ignora errori di pulizia duplicati
+          }
+        }
+      }
+
+      return { id: targetFile.id, name: targetFilename };
     }
 
-    return (await res.json()) as { id: string; name: string };
+    // Se non esiste ancora alcun file nella cartella, creiamo prima il file e poi carichiamo il contenuto
+    const createRes = await this.fetchWithAuth('https://www.googleapis.com/drive/v3/files', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: targetFilename,
+        parents: [folderId],
+        mimeType: 'text/csv',
+      }),
+    });
+
+    if (!createRes.ok) {
+      const errText = await createRes.text();
+      throw new Error(`Errore creazione file su Drive: ${errText}`);
+    }
+
+    const createdJson = (await createRes.json()) as { id: string; name: string };
+    const uploadRes = await this.fetchWithAuth(
+      `https://www.googleapis.com/upload/drive/v3/files/${createdJson.id}?uploadType=media`,
+      {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'text/csv; charset=UTF-8',
+        },
+        body: csvContent,
+      },
+    );
+
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      throw new Error(`Errore caricamento dati su Drive: ${errText}`);
+    }
+
+    return { id: createdJson.id, name: targetFilename };
   }
 }
 

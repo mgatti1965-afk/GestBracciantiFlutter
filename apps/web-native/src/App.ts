@@ -243,12 +243,38 @@ export async function renderApp(): Promise<HTMLElement> {
     if (!isReadOnlyDueToAlignment || activeTab === 'OTHERS') {
       return;
     }
+    const isNavigationOrViewControl = (el: HTMLElement): boolean => {
+      if (el.classList.contains('nav-item') || el.classList.contains('tab-pill')) return true;
+      if (
+        el.classList.contains('btn-icon-nav') ||
+        el.classList.contains('filter-chip') ||
+        el.classList.contains('seg-btn') ||
+        el.classList.contains('subtab')
+      ) {
+        return true;
+      }
+      if (
+        el.matches(
+          '#sum-prev-btn, #sum-next-btn, #prev-month-btn, #next-month-btn, #day-back-btn, #toggle-cal-expand, #print-summary-btn, #topbar-help',
+        )
+      ) {
+        return true;
+      }
+      if (el.matches('[data-action="view"], [data-subtab], [data-group], [data-mode]')) {
+        return true;
+      }
+      if (el instanceof HTMLInputElement && (el.type === 'search' || el.id === 'worker-search-input')) {
+        return true;
+      }
+      return false;
+    };
+
     mainContent
-      .querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement>(
-        'button:not(.btn-ghost):not(.tab-pill):not([data-action="view"]):not(#topbar-help), input, select',
+      .querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
+        'button, input, select, textarea',
       )
       .forEach((el) => {
-        if (el.classList.contains('nav-item')) return;
+        if (isNavigationOrViewControl(el)) return;
         el.setAttribute('disabled', 'true');
         el.setAttribute('title', 'Sola visualizzazione: è necessario allineare i dati importando da Varie');
       });

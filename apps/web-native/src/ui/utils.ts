@@ -172,10 +172,19 @@ export function openModal(params: {
   card.append(header, body, footer);
   overlay.appendChild(card);
 
+  const onKeyDown = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      close();
+    }
+  };
+
   const close = () => {
+    window.removeEventListener('keydown', onKeyDown);
     overlay.remove();
     params.onClose?.();
   };
+
+  window.addEventListener('keydown', onKeyDown);
 
   overlay.addEventListener('click', (event) => {
     if (event.target === overlay) {
@@ -201,11 +210,14 @@ export function showConfirmDialog(params: {
   p.textContent = params.message;
   modal.body.appendChild(p);
 
-  const cancelBtn = document.createElement('button');
-  cancelBtn.type = 'button';
-  cancelBtn.className = 'btn btn-ghost';
-  cancelBtn.textContent = params.cancelLabel ?? 'Annulla';
-  cancelBtn.addEventListener('click', () => modal.close());
+  if (params.cancelLabel !== '') {
+    const cancelBtn = document.createElement('button');
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'btn btn-ghost';
+    cancelBtn.textContent = params.cancelLabel ?? 'Annulla';
+    cancelBtn.addEventListener('click', () => modal.close());
+    modal.footer.appendChild(cancelBtn);
+  }
 
   const confirmBtn = document.createElement('button');
   confirmBtn.type = 'button';
@@ -221,5 +233,5 @@ export function showConfirmDialog(params: {
     }
   });
 
-  modal.footer.append(cancelBtn, confirmBtn);
+  modal.footer.appendChild(confirmBtn);
 }

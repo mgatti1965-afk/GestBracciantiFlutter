@@ -86,4 +86,24 @@ describe('workLog domain', () => {
     expect(log.extraAmount).toBe(4.95);
     expect(log.totalAmount).toBe(84.95);
   });
+
+  it('avanza correttamente i giorni a cavallo del cambio ora legale di ottobre senza loop', () => {
+    // 25 Ottobre 2026: cambio ora solare (giorno da 25h in Europa/Roma)
+    const cur = new Date(2026, 9, 24); // 24 Ottobre
+    const end = new Date(2026, 9, 26); // 26 Ottobre
+    const cursor = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate());
+    const endMillis = new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime();
+
+    const visitedDays: number[] = [];
+    let iterations = 0;
+    while (cursor.getTime() <= endMillis) {
+      visitedDays.push(cursor.getDate());
+      cursor.setDate(cursor.getDate() + 1);
+      iterations++;
+      if (iterations > 10) break; // salvavita in caso di loop
+    }
+
+    expect(visitedDays).toEqual([24, 25, 26]);
+    expect(iterations).toBe(3);
+  });
 });

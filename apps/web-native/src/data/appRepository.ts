@@ -28,6 +28,7 @@ import {
   type WorkerYearConfig,
 } from '../domain/models';
 import { sortLogsByDateDesc, type WorkLog } from '../domain/workLog';
+import { DRIVE_BACKUP_FILE_NAME } from './driveConfig';
 import {
   requestToPromise,
   STORE_BACKUPS,
@@ -43,7 +44,6 @@ import {
 } from './db';
 
 const SETTINGS_KEY = 'ownerSettings';
-const DAY_MILLIS = 24 * 60 * 60 * 1000;
 
 function formatBackupTimestamp(date: Date): string {
   const yyyy = date.getFullYear();
@@ -748,10 +748,11 @@ export class AppRepository {
 
       const cur = new Date(params.startDate);
       const end = new Date(params.endDate);
-      let cursorMillis = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate()).getTime();
+      const cursor = new Date(cur.getFullYear(), cur.getMonth(), cur.getDate());
       const endMillis = new Date(end.getFullYear(), end.getMonth(), end.getDate()).getTime();
 
-      while (cursorMillis <= endMillis) {
+      while (cursor.getTime() <= endMillis) {
+        const cursorMillis = cursor.getTime();
         for (const workerId of params.workerIds) {
           const cfg = configMap.get(workerId);
           const existing = existingYearLogs.find(
@@ -780,8 +781,7 @@ export class AppRepository {
           }
           count += 1;
         }
-        const next = new Date(cursorMillis + DAY_MILLIS);
-        cursorMillis = new Date(next.getFullYear(), next.getMonth(), next.getDate()).getTime();
+        cursor.setDate(cursor.getDate() + 1);
       }
     });
 
@@ -862,7 +862,7 @@ export class AppRepository {
     const dataset = await this.readFullDataset();
     const csvContent = exportAndroidBackupCsv(dataset, exportDate);
     const headerDate = formatBackupHeaderDate(exportDate);
-    const filename = `GestBraccianti_Bkp_${formatBackupTimestamp(exportDate)}.csv`;
+    const filename = DRIVE_BACKUP_FILE_NAME;
 
     if (saveInHistory) {
       await withTransaction([STORE_BACKUPS, STORE_SETTINGS], 'readwrite', async (tx) => {

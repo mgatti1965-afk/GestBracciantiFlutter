@@ -285,13 +285,40 @@ function renderAggregateRowHtml(title: string, logs: WorkLog[], totalLabel: stri
 }
 
 export function openPrintReportPopup(html: string): void {
-  const popup = window.open('', '_blank');
-  if (!popup) {
-    throw new Error('Impossibile aprire la finestra di stampa. Consenti i popup per questo sito.');
+  const iframe = document.createElement('iframe');
+  iframe.style.position = 'fixed';
+  iframe.style.right = '0';
+  iframe.style.bottom = '0';
+  iframe.style.width = '0';
+  iframe.style.height = '0';
+  iframe.style.border = '0';
+  iframe.setAttribute('aria-hidden', 'true');
+  document.body.appendChild(iframe);
+
+  const iframeDoc = iframe.contentWindow?.document;
+  if (!iframeDoc || !iframe.contentWindow) {
+    iframe.remove();
+    const popup = window.open('', '_blank');
+    if (!popup) {
+      throw new Error('Impossibile aprire la finestra di stampa. Consenti i popup per questo sito.');
+    }
+    popup.document.open();
+    popup.document.write(html);
+    popup.document.close();
+    popup.focus();
+    popup.print();
+    return;
   }
-  popup.document.open();
-  popup.document.write(html);
-  popup.document.close();
-  popup.focus();
-  popup.print();
+
+  iframeDoc.open();
+  iframeDoc.write(html);
+  iframeDoc.close();
+
+  iframe.contentWindow.focus();
+  setTimeout(() => {
+    iframe.contentWindow?.print();
+    setTimeout(() => {
+      iframe.remove();
+    }, 1000);
+  }, 250);
 }

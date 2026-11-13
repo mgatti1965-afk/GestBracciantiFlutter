@@ -32,7 +32,7 @@ export async function renderOthersView(params: {
     return ts !== null ? formatDateTime(ts) : dateStr;
   };
 
-  const [settings, backups, hasUnexported] = await Promise.all([
+  let [settings, backups, hasUnexported] = await Promise.all([
     repo.getSettings(),
     repo.getBackupHistory(),
     repo.hasUnexportedChanges(),
@@ -96,7 +96,7 @@ export async function renderOthersView(params: {
     if (newSurname === settings.ownerSurname && newName === settings.ownerName) {
       return;
     }
-    await repo.saveSettings({
+    settings = await repo.saveSettings({
       ownerSurname: newSurname,
       ownerName: newName,
     });
@@ -122,7 +122,7 @@ export async function renderOthersView(params: {
     if (val === settings.extraHoursThreshold) {
       return;
     }
-    await repo.saveSettings({ extraHoursThreshold: val });
+    settings = await repo.saveSettings({ extraHoursThreshold: val });
     toast.show(`Soglia straordinari impostata a ${val} ore.`);
     if (onRefreshChrome) {
       await onRefreshChrome();
@@ -134,7 +134,7 @@ export async function renderOthersView(params: {
     if (newType === settings.festiveDaysType) {
       return;
     }
-    await repo.saveSettings({ festiveDaysType: newType });
+    settings = await repo.saveSettings({ festiveDaysType: newType });
     toast.show('Calendario festivi aggiornato.');
     if (onRefreshChrome) {
       await onRefreshChrome();
@@ -150,6 +150,7 @@ export async function renderOthersView(params: {
   // ==========================================
   const isDriveSignedIn = googleDriveService.isSignedIn();
   const driveEmail = googleDriveService.getUserEmail();
+  const lastEmail = googleDriveService.getLastUserEmail();
 
   const syncCard = document.createElement('article');
   syncCard.className = 'card section-card';
@@ -174,11 +175,12 @@ export async function renderOthersView(params: {
             : '<span class="badge badge-warning">⚪ Google Drive non connesso</span>'
         }
       </div>
-      <div>
+      <div style="display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap;">
         ${
           isDriveSignedIn
             ? '<button type="button" class="btn btn-ghost btn-sm" id="drive-disconnect-btn">Disconnetti</button>'
-            : '<button type="button" class="btn btn-primary btn-sm" id="drive-connect-btn">Connetti Google Drive</button>'
+            : `<button type="button" class="btn btn-primary btn-sm" id="drive-connect-btn">Connetti Google Drive</button>
+               ${lastEmail ? '<button type="button" class="btn btn-ghost btn-sm" id="drive-switch-btn" title="Accedi con un account differente">Cambia account</button>' : ''}`
         }
       </div>
     </div>
@@ -236,14 +238,32 @@ export async function renderOthersView(params: {
     </div>
   `;
 
-  // Drive Connect / Disconnect
-  syncCard.querySelector('#drive-connect-btn')?.addEventListener('click', async () => {
+  // Drive Connect / Disconnect / Switch
+  const driveConnectBtn = syncCard.querySelector<HTMLButtonElement>('#drive-connect-btn');
+  driveConnectBtn?.addEventListener('click', async () => {
+    driveConnectBtn.disabled = true;
     try {
       await googleDriveService.signIn();
       toast.show('Collegamento a Google Drive effettuato con successo!');
       await refreshSelf();
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Errore connessione Google Drive', true);
+    } finally {
+      driveConnectBtn.disabled = false;
+    }
+  });
+
+  const driveSwitchBtn = syncCard.querySelector<HTMLButtonElement>('#drive-switch-btn');
+  driveSwitchBtn?.addEventListener('click', async () => {
+    driveSwitchBtn.disabled = true;
+    try {
+      await googleDriveService.signIn(undefined, { selectAccount: true });
+      toast.show('Collegamento a Google Drive effettuato con successo!');
+      await refreshSelf();
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Errore connessione Google Drive', true);
+    } finally {
+      driveSwitchBtn.disabled = false;
     }
   });
 
@@ -254,7 +274,9 @@ export async function renderOthersView(params: {
   });
 
   // Export Button (con controllo di sicurezza cloud)
-  syncCard.querySelector('#export-backup-btn')?.addEventListener('click', async () => {
+  const exportBackupBtn = syncCard.querySelector<HTMLButtonElement>('#export-backup-btn');
+  exportBackupBtn?.addEventListener('click', async () => {
+    exportBackupBtn.disabled = true;
     try {
       if (googleDriveService.isSignedIn()) {
         toast.show('Controllo allineamento su Google Drive prima dello scarico...');
@@ -276,14 +298,15 @@ export async function renderOthersView(params: {
       }
 
       const { filename, csvContent } = await repo.exportFullBackup(true);
-      downloadTextFile(filename, csvContent);
 
       if (googleDriveService.isSignedIn()) {
         try {
-          await googleDriveService.uploadBackupFile(filename, csvContent);
-          toast.show('Backup scaricato e salvato su Google Drive!');
+          await googleDriveService.uploadBackupFile(csvContent, filename);
+          downloadTextFile(filename, csvContent);
+          toast.show('Backup salvato su Google Drive e scaricato in locale!');
         } catch (uploadErr) {
           await repo.recordMutation();
+          downloadTextFile(filename, csvContent);
           toast.show(
             `Backup scaricato in locale, ma errore nel caricamento su Drive: ${
               uploadErr instanceof Error ? uploadErr.message : String(uploadErr)
@@ -292,17 +315,22 @@ export async function renderOthersView(params: {
           );
         }
       } else {
+        downloadTextFile(filename, csvContent);
         toast.show('Dati esportati e salvati nella cronologia locale!');
       }
 
       await refreshSelf();
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Errore durante l’esportazione.', true);
+    } finally {
+      exportBackupBtn.disabled = false;
     }
   });
 
   // Import from Drive
-  syncCard.querySelector('#drive-import-btn')?.addEventListener('click', async () => {
+  const driveImportBtn = syncCard.querySelector<HTMLButtonElement>('#drive-import-btn');
+  driveImportBtn?.addEventListener('click', async () => {
+    driveImportBtn.disabled = true;
     try {
       toast.show('Ricerca ultimo backup su Google Drive...');
       const latest = await googleDriveService.getLatestBackupFile();
@@ -323,11 +351,15 @@ export async function renderOthersView(params: {
       });
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Errore import da Google Drive.', true);
+    } finally {
+      driveImportBtn.disabled = false;
     }
   });
 
   // Check alignment
-  syncCard.querySelector('#drive-check-btn')?.addEventListener('click', async () => {
+  const driveCheckBtn = syncCard.querySelector<HTMLButtonElement>('#drive-check-btn');
+  driveCheckBtn?.addEventListener('click', async () => {
+    driveCheckBtn.disabled = true;
     try {
       toast.show('Verifica in corso su Google Drive...');
       const latest = await googleDriveService.getLatestBackupFile();
@@ -359,6 +391,8 @@ export async function renderOthersView(params: {
       }
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Errore verifica Google Drive.', true);
+    } finally {
+      driveCheckBtn.disabled = false;
     }
   });
 
