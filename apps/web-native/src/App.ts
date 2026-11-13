@@ -69,6 +69,7 @@ export async function renderApp(): Promise<HTMLElement> {
   let activeDayDetailDate: number | null = null;
   let backupReminderShown = false;
   let isReadOnlyDueToAlignment = false;
+  let alignmentGeneration = 0;
 
   const dailyState: DailyLoggingState = {
     yearId: currentYear?.id ?? new Date().getFullYear(),
@@ -367,6 +368,7 @@ export async function renderApp(): Promise<HTMLElement> {
       repo,
       toast,
       onDatabaseChanged: async () => {
+        alignmentGeneration += 1;
         isReadOnlyDueToAlignment = false;
         currentYear = await repo.getCurrentYear();
         if (currentYear) {
@@ -385,8 +387,15 @@ export async function renderApp(): Promise<HTMLElement> {
   };
 
   const verifyCloudAlignment = async (opts?: { showAlignedToast?: boolean }) => {
-    const settings = await repo.getSettings();
+    const checkGen = ++alignmentGeneration;
     const latest = await googleDriveService.getLatestBackupFile();
+    if (checkGen !== alignmentGeneration) {
+      return;
+    }
+    const settings = await repo.getSettings();
+    if (checkGen !== alignmentGeneration) {
+      return;
+    }
     if (!latest) {
       if (isReadOnlyDueToAlignment) {
         isReadOnlyDueToAlignment = false;
@@ -426,6 +435,7 @@ export async function renderApp(): Promise<HTMLElement> {
         importBtn.disabled = true;
         try {
           const res = await repo.importFullBackup(latest.content);
+          alignmentGeneration += 1;
           isReadOnlyDueToAlignment = false;
           modal.close();
           toast.show(`Dati importati dal cloud: ${res.years} annate, ${res.workers} braccianti, ${res.logs} log.`);

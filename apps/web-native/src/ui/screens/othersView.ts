@@ -246,10 +246,10 @@ export async function renderOthersView(params: {
     try {
       await googleDriveService.signIn();
       toast.show('Collegamento a Google Drive effettuato! Verifica allineamento...');
-      await refreshSelf();
       if (onDriveSignedIn) {
         await onDriveSignedIn();
       }
+      await refreshSelf();
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Errore connessione Google Drive', true);
     } finally {
@@ -263,10 +263,10 @@ export async function renderOthersView(params: {
     try {
       await googleDriveService.signIn(undefined, { selectAccount: true });
       toast.show('Collegamento a Google Drive effettuato! Verifica allineamento...');
-      await refreshSelf();
       if (onDriveSignedIn) {
         await onDriveSignedIn();
       }
+      await refreshSelf();
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Errore connessione Google Drive', true);
     } finally {
