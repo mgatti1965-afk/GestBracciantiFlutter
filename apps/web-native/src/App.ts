@@ -157,14 +157,17 @@ export async function renderApp(): Promise<HTMLElement> {
 
     topBar.innerHTML = `
       <div class="topbar-inner">
-        <div class="topbar-brand">
-          <span class="topbar-title">${getScreenTitle()}</span>
-          ${currentYear.notes ? `<span class="topbar-sub">${currentYear.notes}</span>` : ''}
+        <div class="topbar-brand" style="display: flex; align-items: center; gap: 0.45rem;">
+          <img src="./favicon.svg" alt="" width="26" height="26" style="border-radius: 6px; flex-shrink: 0;" />
+          <div>
+            <span class="topbar-title">${getScreenTitle()}</span>
+            ${currentYear.notes ? `<span class="topbar-sub">${currentYear.notes}</span>` : ''}
+          </div>
         </div>
         <div class="topbar-actions">
           ${
             hasUnexported
-              ? '<button type="button" class="export-needed-badge" id="topbar-export-needed" title="Variazioni non salvate su cloud. Clicca per andare a Varie">⚠️ Da scaricare</button>'
+              ? '<button type="button" class="export-needed-badge" id="topbar-export-needed" title="Ci sono modifiche locali non ancora salvate su Google Drive. Clicca per andare a Varie">⚠️ Modifiche non salvate</button>'
               : ''
           }
           <button type="button" class="btn btn-ghost btn-icon" id="topbar-help" title="Guida contestuale">?</button>

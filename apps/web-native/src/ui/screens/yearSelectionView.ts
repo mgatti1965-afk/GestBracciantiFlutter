@@ -19,9 +19,12 @@ export async function renderYearSelectionView(params: {
   const topBar = document.createElement('header');
   topBar.className = 'sub-topbar';
   topBar.innerHTML = `
-    <div>
-      <p class="eyebrow">GestBraccianti</p>
-      <h2>Seleziona Annata</h2>
+    <div style="display: flex; align-items: center; gap: 0.65rem;">
+      <img src="./favicon.svg" alt="GestBraccianti" width="38" height="38" style="border-radius: 9px; box-shadow: 0 2px 8px rgba(0,0,0,0.15); flex-shrink: 0;" />
+      <div>
+        <p class="eyebrow">GestBraccianti</p>
+        <h2>Seleziona Annata</h2>
+      </div>
     </div>
     <div class="sub-topbar-actions">
       <button type="button" class="btn btn-ghost btn-icon" id="year-help-btn" title="Guida">?</button>

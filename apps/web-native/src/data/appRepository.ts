@@ -115,6 +115,9 @@ export class AppRepository {
 
   async hasUnexportedChanges(): Promise<boolean> {
     const settings = await this.getSettings();
+    if (!settings.lastMutationDate || settings.lastMutationDate === 0) {
+      return false;
+    }
     if (!settings.lastExportDate) {
       return settings.lastMutationDate > 0;
     }
@@ -879,6 +882,7 @@ export class AppRepository {
           saveCountSinceBackup: 0,
           lastExportDate: exportDate.getTime(),
           lastImportDate: headerDate,
+          lastMutationDate: 0,
         });
         await requestToPromise(settingsStore.put({ key: SETTINGS_KEY, ...merged }));
       });

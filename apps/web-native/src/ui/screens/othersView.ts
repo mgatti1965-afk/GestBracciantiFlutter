@@ -77,9 +77,14 @@ export async function renderOthersView(params: {
   const ownerSurnameIn = settingsCard.querySelector<HTMLInputElement>('#owner-surname')!;
   const ownerNameIn = settingsCard.querySelector<HTMLInputElement>('#owner-name')!;
   const saveOwner = async () => {
+    const newSurname = ownerSurnameIn.value.trim();
+    const newName = ownerNameIn.value.trim();
+    if (newSurname === settings.ownerSurname && newName === settings.ownerName) {
+      return;
+    }
     await repo.saveSettings({
-      ownerSurname: ownerSurnameIn.value.trim(),
-      ownerName: ownerNameIn.value.trim(),
+      ownerSurname: newSurname,
+      ownerName: newName,
     });
     toast.show('Dati titolare salvati.');
   };
@@ -97,12 +102,18 @@ export async function renderOthersView(params: {
       toast.show('Inserisci una soglia ore valida.', true);
       return;
     }
+    if (val === settings.extraHoursThreshold) {
+      return;
+    }
     await repo.saveSettings({ extraHoursThreshold: val });
     toast.show(`Soglia straordinari impostata a ${val} ore.`);
   });
 
   const updateFestiveDays = async () => {
     const newType = ((satCheck.checked ? 1 : 0) | (sunCheck.checked ? 2 : 0)) as FestiveDaysType;
+    if (newType === settings.festiveDaysType) {
+      return;
+    }
     await repo.saveSettings({ festiveDaysType: newType });
     toast.show('Calendario festivi aggiornato.');
   };
@@ -126,7 +137,7 @@ export async function renderOthersView(params: {
     ${
       hasUnexported
         ? `<div style="margin-bottom: 0.85rem; padding: 0.65rem 0.85rem; background: #fff3cd; color: #856404; border-radius: 8px; font-weight: 700; font-size: 0.85rem; border: 1px solid #ffeeba;">
-            ⚠️ Sono presenti modifiche locali non ancora esportate. Effettua l'Export per mettere al sicuro i dati.
+            ⚠️ Sono presenti modifiche locali non ancora salvate su Google Drive. Clicca su "Esporta Backup" per inviarle al cloud.
            </div>`
         : ''
     }
@@ -303,9 +314,11 @@ export async function renderOthersView(params: {
       const cloudTimestamp = latest.headerTimestamp;
       const localImportTimestamp = parseBackupHeaderDate(settings.lastImportDate);
 
+      const unexported = await repo.hasUnexportedChanges();
+
       if (cloudTimestamp !== null && (localImportTimestamp === null || cloudTimestamp > localImportTimestamp)) {
         showConfirmDialog({
-          title: 'Serve Allineamento',
+          title: 'Serve Allineamento dal Cloud',
           message: `Su Google Drive è presente un file più recente:\n\n• File Cloud: "${latest.name}"\n• Data Cloud: ${latest.headerDate ?? 'Sconosciuta'}\n• Data Locale: ${settings.lastImportDate ?? 'Nessun import'}\n\nÈ necessario procedere all'import per allineare questo dispositivo.`,
           confirmLabel: 'Importa Ora da Drive',
           cancelLabel: 'Chiudi',
@@ -315,6 +328,8 @@ export async function renderOthersView(params: {
             await onDatabaseChanged();
           },
         });
+      } else if (unexported) {
+        toast.show('Il cloud è allineato all’ultimo import, ma hai nuove modifiche locali. Clicca su "Esporta Backup" per salvarle su Drive.');
       } else {
         toast.show(`Archivio già allineato! Ultimo backup cloud: ${latest.headerDate ?? latest.name}`);
       }
