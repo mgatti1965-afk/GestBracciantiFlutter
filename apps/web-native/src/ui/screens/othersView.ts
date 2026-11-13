@@ -28,53 +28,39 @@ export async function renderOthersView(params: {
   const screen = document.createElement('section');
   screen.className = 'screen others-screen';
 
-  // 1. Azienda / Titolare
-  const ownerCard = document.createElement('article');
-  ownerCard.className = 'card section-card';
-  ownerCard.innerHTML = `
-    <h3>Azienda / Titolare</h3>
-    <p class="muted small-note">Dati stampati nell'intestazione dei report PDF.</p>
-    <div class="two-col-grid">
-      <label class="field">
-        <span>Cognome</span>
-        <input id="owner-surname" type="text" value="${escapeHtml(settings.ownerSurname)}" placeholder="Es. Rossi" />
-      </label>
-      <label class="field">
-        <span>Nome</span>
-        <input id="owner-name" type="text" value="${escapeHtml(settings.ownerName)}" placeholder="Es. Azienda Agricola" />
-      </label>
-    </div>
-  `;
-
-  const ownerSurnameIn = ownerCard.querySelector<HTMLInputElement>('#owner-surname')!;
-  const ownerNameIn = ownerCard.querySelector<HTMLInputElement>('#owner-name')!;
-  const saveOwner = async () => {
-    await repo.saveSettings({
-      ownerSurname: ownerSurnameIn.value.trim(),
-      ownerName: ownerNameIn.value.trim(),
-    });
-    toast.show('Dati titolare salvati.');
-  };
-  ownerSurnameIn.addEventListener('change', saveOwner);
-  ownerNameIn.addEventListener('change', saveOwner);
-  screen.appendChild(ownerCard);
-
-  // 2. Impostazioni Calcolo (Impianto)
+  // ==========================================
+  // 1. IMPOSTAZIONI AZIENDA E CALCOLO
+  // ==========================================
   const isSatFestive = (settings.festiveDaysType & 1) !== 0;
   const isSunFestive = (settings.festiveDaysType & 2) !== 0;
 
-  const calcCard = document.createElement('article');
-  calcCard.className = 'card section-card';
-  calcCard.innerHTML = `
-    <h3>Impostazioni Calcolo (Impianto)</h3>
+  const settingsCard = document.createElement('article');
+  settingsCard.className = 'card section-card';
+  settingsCard.innerHTML = `
+    <h3>Azienda e Impostazioni Calcolo</h3>
+    <p class="muted small-note">Dati aziendali per i report e parametri per il calcolo delle ore lavorate.</p>
+
+    <div class="two-col-grid" style="margin-bottom: 0.75rem;">
+      <label class="field">
+        <span>Cognome Titolare</span>
+        <input id="owner-surname" type="text" value="${escapeHtml(settings.ownerSurname)}" placeholder="Es. Rossi" />
+      </label>
+      <label class="field">
+        <span>Nome Titolare</span>
+        <input id="owner-name" type="text" value="${escapeHtml(settings.ownerName)}" placeholder="Es. Azienda Agricola" />
+      </label>
+    </div>
+
     <div class="setting-row">
       <div>
         <strong>Straordinari dopo (ore)</strong>
-        <div class="muted small-note">Soglia giornaliera oltre la quale scatta la tariffa straordinaria</div>
+        <div class="muted small-note">Soglia giornaliera per tariffa straordinaria</div>
       </div>
       <input id="extra-threshold-input" type="number" min="0" max="24" step="0.5" class="input-compact" value="${settings.extraHoursThreshold}" />
     </div>
-    <hr class="divider" />
+
+    <hr class="divider" style="margin: 0.75rem 0;" />
+
     <div class="festive-config-block">
       <strong class="text-primary">Giorni Festivi Settimanali</strong>
       <label class="check-row">
@@ -88,9 +74,21 @@ export async function renderOthersView(params: {
     </div>
   `;
 
-  const thresholdIn = calcCard.querySelector<HTMLInputElement>('#extra-threshold-input')!;
-  const satCheck = calcCard.querySelector<HTMLInputElement>('#festive-sat')!;
-  const sunCheck = calcCard.querySelector<HTMLInputElement>('#festive-sun')!;
+  const ownerSurnameIn = settingsCard.querySelector<HTMLInputElement>('#owner-surname')!;
+  const ownerNameIn = settingsCard.querySelector<HTMLInputElement>('#owner-name')!;
+  const saveOwner = async () => {
+    await repo.saveSettings({
+      ownerSurname: ownerSurnameIn.value.trim(),
+      ownerName: ownerNameIn.value.trim(),
+    });
+    toast.show('Dati titolare salvati.');
+  };
+  ownerSurnameIn.addEventListener('change', saveOwner);
+  ownerNameIn.addEventListener('change', saveOwner);
+
+  const thresholdIn = settingsCard.querySelector<HTMLInputElement>('#extra-threshold-input')!;
+  const satCheck = settingsCard.querySelector<HTMLInputElement>('#festive-sat')!;
+  const sunCheck = settingsCard.querySelector<HTMLInputElement>('#festive-sun')!;
 
   thresholdIn.addEventListener('change', async () => {
     const val = Number(thresholdIn.value.replace(',', '.'));
@@ -106,28 +104,40 @@ export async function renderOthersView(params: {
   const updateFestiveDays = async () => {
     const newType = ((satCheck.checked ? 1 : 0) | (sunCheck.checked ? 2 : 0)) as FestiveDaysType;
     await repo.saveSettings({ festiveDaysType: newType });
-    toast.show('Calendario festivi settimanali aggiornato.');
+    toast.show('Calendario festivi aggiornato.');
   };
   satCheck.addEventListener('change', updateFestiveDays);
   sunCheck.addEventListener('change', updateFestiveDays);
-  screen.appendChild(calcCard);
 
-  // 3. Sincronizzazione Google Drive
+  screen.appendChild(settingsCard);
+
+  // ==========================================
+  // 2. SINCRONIZZAZIONE E BACKUP (UNIFICATO)
+  // ==========================================
   const isDriveSignedIn = googleDriveService.isSignedIn();
   const driveEmail = googleDriveService.getUserEmail();
 
-  const driveCard = document.createElement('article');
-  driveCard.className = 'card section-card';
-  driveCard.innerHTML = `
-    <h3>Google Drive e Sincronizzazione Cloud</h3>
-    <p class="muted small-note">Gestione automatica del file di backup su Google Drive per allineare smartphone, tablet e PC.</p>
+  const syncCard = document.createElement('article');
+  syncCard.className = 'card section-card';
+  syncCard.innerHTML = `
+    <h3>Sincronizzazione e Backup</h3>
+    <p class="muted small-note">Salvataggio automatico su Google Drive e file CSV per allineare smartphone, tablet e PC.</p>
 
-    <div style="margin: 0.75rem 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+    ${
+      hasUnexported
+        ? `<div style="margin-bottom: 0.85rem; padding: 0.65rem 0.85rem; background: #fff3cd; color: #856404; border-radius: 8px; font-weight: 700; font-size: 0.85rem; border: 1px solid #ffeeba;">
+            ⚠️ Sono presenti modifiche locali non ancora esportate. Effettua l'Export per mettere al sicuro i dati.
+           </div>`
+        : ''
+    }
+
+    <!-- Stato Google Drive -->
+    <div style="margin: 0.5rem 0 0.85rem 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; background: var(--surface-alt); padding: 0.6rem 0.85rem; border-radius: 8px;">
       <div>
         ${
           isDriveSignedIn
             ? `<span class="badge badge-success">🟢 Connesso: ${escapeHtml(driveEmail ?? 'Account Google')}</span>`
-            : '<span class="badge badge-warning">⚪ Non connesso a Google Drive</span>'
+            : '<span class="badge badge-warning">⚪ Google Drive non connesso</span>'
         }
       </div>
       <div>
@@ -139,50 +149,63 @@ export async function renderOthersView(params: {
       </div>
     </div>
 
+    <!-- Pulsanti Principali -->
+    <div class="two-col-grid" style="margin-bottom: 0.75rem;">
+      <button type="button" class="btn btn-primary" id="export-backup-btn">
+        📤 Esporta Backup CSV
+      </button>
+
+      ${
+        isDriveSignedIn
+          ? `<button type="button" class="btn btn-secondary" id="drive-import-btn">
+               📥 Importa da Google Drive
+             </button>`
+          : `<label class="btn btn-secondary file-btn">
+               📂 Importa Backup Locale
+               <input type="file" id="local-import-input" accept=".csv,text/csv" hidden />
+             </label>`
+      }
+    </div>
+
+    ${
+      isDriveSignedIn
+        ? `<div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem;">
+            <label class="btn btn-ghost btn-sm file-btn">
+              📂 Oppure importa file locale
+              <input type="file" id="local-import-input" accept=".csv,text/csv" hidden />
+            </label>
+            <button type="button" class="btn btn-ghost btn-sm" id="drive-check-btn">
+              🔄 Controlla Allineamento Drive
+            </button>
+           </div>`
+        : ''
+    }
+
+    <!-- Tabella Stato Allineamento -->
     <div class="sync-info-grid">
       <div class="sync-info-item">
-        <span class="sync-info-label">Data Ultimo Import Locale</span>
-        <span class="sync-info-value" id="sync-last-import">${escapeHtml(settings.lastImportDate ?? 'Nessuno')}</span>
+        <span class="sync-info-label">Data Ultimo Import</span>
+        <span class="sync-info-value">${escapeHtml(settings.lastImportDate ?? 'Nessuno')}</span>
       </div>
       <div class="sync-info-item">
-        <span class="sync-info-label">Data Ultima Variazione Locale</span>
-        <span class="sync-info-value" id="sync-last-mutation">${
+        <span class="sync-info-label">Data Ultima Modifica</span>
+        <span class="sync-info-value">${
           settings.lastMutationDate ? escapeHtml(formatDateTime(settings.lastMutationDate)) : 'Nessuna'
         }</span>
       </div>
       <div class="sync-info-item">
-        <span class="sync-info-label">Data Ultimo Export Locale</span>
-        <span class="sync-info-value" id="sync-last-export">${
+        <span class="sync-info-label">Data Ultimo Export</span>
+        <span class="sync-info-value">${
           settings.lastExportDate ? escapeHtml(formatDateTime(settings.lastExportDate)) : 'Nessuno'
         }</span>
       </div>
     </div>
-
-    <div style="display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.75rem;">
-      <button type="button" class="btn btn-secondary btn-sm" id="drive-check-alignment-btn" ${!isDriveSignedIn ? 'disabled' : ''}>
-        Controlla Allineamento Cloud
-      </button>
-      <button type="button" class="btn btn-secondary btn-sm" id="drive-import-latest-btn" ${!isDriveSignedIn ? 'disabled' : ''}>
-        Importa Ultimo da Drive
-      </button>
-    </div>
-
-    <details style="margin-top: 0.85rem; font-size: 0.82rem;">
-      <summary style="cursor: pointer; color: var(--muted); font-weight: 700;">Configurazione Avanzata Client ID Google</summary>
-      <div style="margin-top: 0.5rem;">
-        <label class="field">
-          <span>Google Client ID (OAuth SPA)</span>
-          <input id="drive-client-id" type="text" value="${escapeHtml(settings.googleDriveClientId)}" placeholder="Es. 123456789-xyz.apps.googleusercontent.com" />
-        </label>
-        <button type="button" class="btn btn-ghost btn-sm" id="save-client-id-btn" style="margin-top: 0.4rem;">Salva Client ID</button>
-      </div>
-    </details>
   `;
 
   // Drive Connect / Disconnect
-  driveCard.querySelector('#drive-connect-btn')?.addEventListener('click', async () => {
+  syncCard.querySelector('#drive-connect-btn')?.addEventListener('click', async () => {
     try {
-      await googleDriveService.signIn(settings.googleDriveClientId);
+      await googleDriveService.signIn();
       toast.show('Collegamento a Google Drive effettuato con successo!');
       await renderOthersView(params);
     } catch (err) {
@@ -190,110 +213,17 @@ export async function renderOthersView(params: {
     }
   });
 
-  driveCard.querySelector('#drive-disconnect-btn')?.addEventListener('click', async () => {
+  syncCard.querySelector('#drive-disconnect-btn')?.addEventListener('click', async () => {
     googleDriveService.clearSession();
     toast.show('Disconnesso da Google Drive.');
     await renderOthersView(params);
   });
 
-  // Save client id
-  const clientIdInput = driveCard.querySelector<HTMLInputElement>('#drive-client-id');
-  const saveClientIdBtn = driveCard.querySelector<HTMLButtonElement>('#save-client-id-btn');
-  saveClientIdBtn?.addEventListener('click', async () => {
-    const val = (clientIdInput?.value ?? '').trim();
-    await repo.saveSettings({ googleDriveClientId: val });
-    toast.show('Client ID salvato.');
-    await renderOthersView(params);
-  });
-
-  // Check alignment
-  driveCard.querySelector('#drive-check-alignment-btn')?.addEventListener('click', async () => {
+  // Export Button (con controllo di sicurezza cloud)
+  syncCard.querySelector('#export-backup-btn')?.addEventListener('click', async () => {
     try {
-      toast.show('Verifica in corso su Google Drive...');
-      const latest = await googleDriveService.getLatestBackupFile();
-      if (!latest) {
-        toast.show('Nessun file di backup trovato nella cartella GestBraccianti_Backup su Drive.');
-        return;
-      }
-      const cloudTimestamp = latest.headerTimestamp;
-      const localImportTimestamp = parseBackupHeaderDate(settings.lastImportDate);
-
-      if (cloudTimestamp !== null && (localImportTimestamp === null || cloudTimestamp > localImportTimestamp)) {
-        showConfirmDialog({
-          title: 'Serve Allineamento',
-          message: `Su Google Drive è presente un file più recente:\n\n• File Cloud: "${latest.name}"\n• Data Cloud: ${latest.headerDate ?? 'Sconosciuta'}\n• Data Locale: ${settings.lastImportDate ?? 'Nessun import'}\n\nÈ necessario procedere all'import dei dati per allineare questo dispositivo.`,
-          confirmLabel: 'Importa Ora da Drive',
-          cancelLabel: 'Chiudi',
-          onConfirm: async () => {
-            await repo.importFullBackup(latest.content);
-            toast.show('Dati importati e allineati con Google Drive!');
-            await onDatabaseChanged();
-          },
-        });
-      } else {
-        toast.show(`Archivio già allineato! Ultimo backup su Drive: ${latest.headerDate ?? latest.name}`);
-      }
-    } catch (err) {
-      toast.show(err instanceof Error ? err.message : 'Errore durante la verifica con Drive.', true);
-    }
-  });
-
-  // Import latest from drive
-  driveCard.querySelector('#drive-import-latest-btn')?.addEventListener('click', async () => {
-    try {
-      toast.show('Ricerca ultimo backup su Google Drive...');
-      const latest = await googleDriveService.getLatestBackupFile();
-      if (!latest) {
-        toast.show('Nessun file di backup trovato nella cartella GestBraccianti_Backup su Drive.', true);
-        return;
-      }
-      showConfirmDialog({
-        title: 'Conferma Import da Google Drive',
-        message: `Attenzione: verrà scaricato e importato il backup "${latest.name}" (Data: ${latest.headerDate ?? 'sconosciuta'}). Questa operazione sostituirà tutti i dati attuali con quelli del cloud (verrà prima salvato un backup automatico interno). Confermi?`,
-        confirmLabel: 'Conferma Import',
-        danger: true,
-        onConfirm: async () => {
-          const res = await repo.importFullBackup(latest.content);
-          toast.show(`Dati importati dal cloud: ${res.years} annate, ${res.workers} braccianti, ${res.logs} log.`);
-          await onDatabaseChanged();
-        },
-      });
-    } catch (err) {
-      toast.show(err instanceof Error ? err.message : 'Errore import da Google Drive.', true);
-    }
-  });
-
-  screen.appendChild(driveCard);
-
-  // 4. Esportazione e Backup (CSV)
-  const csvCard = document.createElement('article');
-  csvCard.className = 'card section-card';
-  csvCard.innerHTML = `
-    <h3>Esportazione e Backup (CSV)</h3>
-    <p class="muted small-note">Formato GestBraccianti compatibile al 100% con i backup Android e iOS (annate, braccianti, tariffe, gruppi, orari e impostazioni).</p>
-    
-    ${
-      hasUnexported
-        ? `<div style="margin-bottom: 0.85rem; padding: 0.65rem 0.85rem; background: #fff3cd; color: #856404; border-radius: 8px; font-weight: 700; font-size: 0.85rem; border: 1px solid #ffeeba;">
-            ⚠️ Sono presenti modifiche locali non ancora esportate. Effettua l'Export per aggiornare il backup.
-           </div>`
-        : ''
-    }
-
-    <div class="two-col-grid">
-      <button type="button" class="btn btn-primary" id="others-export-btn">Esporta Backup CSV</button>
-      <label class="btn btn-secondary file-btn">
-        Importa Backup CSV Locale
-        <input type="file" id="others-import-input" accept=".csv,text/csv" hidden />
-      </label>
-    </div>
-  `;
-
-  csvCard.querySelector('#others-export-btn')?.addEventListener('click', async () => {
-    try {
-      // Se Google Drive è connesso, verificare prima che il file sul cloud sia <= data del file sul DB
       if (googleDriveService.isSignedIn()) {
-        toast.show('Verifica allineamento con Google Drive prima dello scarico...');
+        toast.show('Controllo allineamento su Google Drive prima dello scarico...');
         const latestCloud = await googleDriveService.getLatestBackupFile();
         if (latestCloud) {
           const cloudTimestamp = latestCloud.headerTimestamp;
@@ -301,7 +231,7 @@ export async function renderOthersView(params: {
           if (cloudTimestamp !== null && localImportTimestamp !== null && cloudTimestamp > localImportTimestamp) {
             showConfirmDialog({
               title: 'Export Bloccato: Serve Allineamento',
-              message: `Impossibile procedere con lo scarico: su Google Drive è presente un backup più recente (${latestCloud.headerDate}) rispetto alla data di allineamento del tuo archivio (${settings.lastImportDate}).\n\nÈ necessario procedere prima all'import dei dati per non sovrascrivere le modifiche apportate da un altro dispositivo.`,
+              message: `Impossibile procedere con l'Export: su Google Drive è presente un backup più recente (${latestCloud.headerDate}) rispetto alla data del tuo archivio (${settings.lastImportDate}).\n\nÈ necessario procedere prima all'import dei dati per non sovrascrivere le modifiche apportate da un altro dispositivo.`,
               confirmLabel: 'Ho capito',
               cancelLabel: '',
               onConfirm: () => {},
@@ -317,7 +247,7 @@ export async function renderOthersView(params: {
       if (googleDriveService.isSignedIn()) {
         try {
           await googleDriveService.uploadBackupFile(filename, csvContent);
-          toast.show('Backup scaricato in locale e salvato su Google Drive!');
+          toast.show('Backup scaricato e salvato su Google Drive!');
         } catch (uploadErr) {
           toast.show(
             `Backup scaricato in locale, ma errore nel caricamento su Drive: ${
@@ -327,7 +257,7 @@ export async function renderOthersView(params: {
           );
         }
       } else {
-        toast.show('Dati esportati e salvati nella cronologia backup!');
+        toast.show('Dati esportati e salvati nella cronologia locale!');
       }
 
       await renderOthersView(params);
@@ -336,41 +266,121 @@ export async function renderOthersView(params: {
     }
   });
 
-  const importInput = csvCard.querySelector<HTMLInputElement>('#others-import-input')!;
-  importInput.addEventListener('change', async () => {
-    const file = importInput.files?.[0];
+  // Import from Drive
+  syncCard.querySelector('#drive-import-btn')?.addEventListener('click', async () => {
+    try {
+      toast.show('Ricerca ultimo backup su Google Drive...');
+      const latest = await googleDriveService.getLatestBackupFile();
+      if (!latest) {
+        toast.show('Nessun file di backup trovato nella cartella GestBraccianti_Backup su Drive.', true);
+        return;
+      }
+      showConfirmDialog({
+        title: 'Importa Backup da Google Drive',
+        message: `Verrà scaricato e importato il backup "${latest.name}" (Data: ${latest.headerDate ?? 'sconosciuta'}). Questa operazione sostituirà i dati attuali con quelli del cloud (verrà prima salvato un backup automatico interno). Confermi?`,
+        confirmLabel: 'Conferma Import',
+        danger: true,
+        onConfirm: async () => {
+          const res = await repo.importFullBackup(latest.content);
+          toast.show(`Dati importati: ${res.years} annate, ${res.workers} braccianti, ${res.logs} log.`);
+          await onDatabaseChanged();
+        },
+      });
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Errore import da Google Drive.', true);
+    }
+  });
+
+  // Check alignment
+  syncCard.querySelector('#drive-check-btn')?.addEventListener('click', async () => {
+    try {
+      toast.show('Verifica in corso su Google Drive...');
+      const latest = await googleDriveService.getLatestBackupFile();
+      if (!latest) {
+        toast.show('Nessun file di backup trovato su Google Drive.');
+        return;
+      }
+      const cloudTimestamp = latest.headerTimestamp;
+      const localImportTimestamp = parseBackupHeaderDate(settings.lastImportDate);
+
+      if (cloudTimestamp !== null && (localImportTimestamp === null || cloudTimestamp > localImportTimestamp)) {
+        showConfirmDialog({
+          title: 'Serve Allineamento',
+          message: `Su Google Drive è presente un file più recente:\n\n• File Cloud: "${latest.name}"\n• Data Cloud: ${latest.headerDate ?? 'Sconosciuta'}\n• Data Locale: ${settings.lastImportDate ?? 'Nessun import'}\n\nÈ necessario procedere all'import per allineare questo dispositivo.`,
+          confirmLabel: 'Importa Ora da Drive',
+          cancelLabel: 'Chiudi',
+          onConfirm: async () => {
+            await repo.importFullBackup(latest.content);
+            toast.show('Dati importati e allineati con Google Drive!');
+            await onDatabaseChanged();
+          },
+        });
+      } else {
+        toast.show(`Archivio già allineato! Ultimo backup cloud: ${latest.headerDate ?? latest.name}`);
+      }
+    } catch (err) {
+      toast.show(err instanceof Error ? err.message : 'Errore verifica Google Drive.', true);
+    }
+  });
+
+  // Import local CSV
+  const localImportInput = syncCard.querySelector<HTMLInputElement>('#local-import-input');
+  localImportInput?.addEventListener('change', async () => {
+    const file = localImportInput.files?.[0];
     if (!file) return;
     try {
       const text = await file.text();
       showConfirmDialog({
-        title: 'Conferma Importazione',
-        message: `Attenzione: caricamento dati da "${file.name}". Questa operazione sostituirà tutti i dati attuali con quelli del file scelto (verrà prima salvato un backup automatico interno). Confermi?`,
+        title: 'Conferma Importazione File',
+        message: `Attenzione: caricamento dati da "${file.name}". Questa operazione sostituirà i dati attuali (verrà prima salvato un backup automatico interno). Confermi?`,
         confirmLabel: 'Conferma',
         danger: true,
         onConfirm: async () => {
           const res = await repo.importFullBackup(text);
-          toast.show(`Dati importati: ${res.years} annate, ${res.workers} braccianti, ${res.groups} gruppi, ${res.logs} log.`);
+          toast.show(`Dati importati: ${res.years} annate, ${res.workers} braccianti, ${res.logs} log.`);
           await onDatabaseChanged();
         },
       });
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'File non riconosciuto come backup valido.', true);
     } finally {
-      importInput.value = '';
+      localImportInput.value = '';
     }
   });
-  screen.appendChild(csvCard);
 
-  // 5. Cronologia Backup Interni
-  const historyCard = document.createElement('article');
-  historyCard.className = 'card section-card';
-  historyCard.innerHTML = '<h3>Cronologia Backup Interni</h3>';
+  screen.appendChild(syncCard);
 
+  // ==========================================
+  // 3. MANUTENZIONE E CRONOLOGIA (IN FONDO)
+  // ==========================================
+  const maintCard = document.createElement('article');
+  maintCard.className = 'card section-card';
+  maintCard.innerHTML = `
+    <h3>Manutenzione e Cronologia</h3>
+    <p class="muted small-note">Archivio storico dei backup interni e gestione del database locale.</p>
+
+    <details style="margin: 0.75rem 0;">
+      <summary style="cursor: pointer; font-weight: 700; color: var(--primary);">
+        📦 Cronologia Backup Interni (${backups.length})
+      </summary>
+      <div id="backup-history-container" style="margin-top: 0.65rem;"></div>
+    </details>
+
+    <hr class="divider" style="margin: 0.85rem 0;" />
+
+    <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem;">
+      <div class="muted small-note">Elimina tutti i dati locali memorizzati nel browser.</div>
+      <button type="button" class="btn btn-danger-outline btn-sm" id="clear-db-btn">Svuota Database</button>
+    </div>
+  `;
+
+  // Riempimento lista backup interni
+  const historyContainer = maintCard.querySelector<HTMLElement>('#backup-history-container')!;
   if (backups.length === 0) {
     const p = document.createElement('p');
     p.className = 'muted small-note';
     p.textContent = 'Nessun backup salvato internamente.';
-    historyCard.appendChild(p);
+    historyContainer.appendChild(p);
   } else {
     const bList = document.createElement('div');
     bList.className = 'card-list';
@@ -412,19 +422,11 @@ export async function renderOthersView(params: {
       });
       bList.appendChild(row);
     }
-    historyCard.appendChild(bList);
+    historyContainer.appendChild(bList);
   }
-  screen.appendChild(historyCard);
 
-  // 6. Area Manutenzione (Reset DB)
-  const dangerCard = document.createElement('article');
-  dangerCard.className = 'card section-card danger-zone-card';
-  dangerCard.innerHTML = `
-    <h3>Manutenzione Archivio</h3>
-    <p class="muted small-note">Elimina tutti i dati salvati localmente nel browser (si consiglia un backup CSV prima di procedere).</p>
-    <button type="button" class="btn btn-danger-outline" id="clear-db-btn">Svuota Database</button>
-  `;
-  dangerCard.querySelector('#clear-db-btn')?.addEventListener('click', () => {
+  // Clear Database
+  maintCard.querySelector('#clear-db-btn')?.addEventListener('click', () => {
     showConfirmDialog({
       title: 'Svuota Database',
       message:
@@ -438,7 +440,8 @@ export async function renderOthersView(params: {
       },
     });
   });
-  screen.appendChild(dangerCard);
+
+  screen.appendChild(maintCard);
 
   container.appendChild(screen);
 }

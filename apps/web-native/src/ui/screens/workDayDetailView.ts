@@ -129,6 +129,22 @@ function createTimeSection(params: {
     sync();
   });
 
+  startInput.addEventListener('click', () => {
+    if (!startInput.value.trim()) {
+      start = params.defaultStart;
+      startInput.value = start;
+      sync();
+    }
+  });
+
+  endInput.addEventListener('click', () => {
+    if (!endInput.value.trim()) {
+      end = params.defaultEnd;
+      endInput.value = end;
+      sync();
+    }
+  });
+
   startInput.addEventListener('input', () => {
     start = startInput.value;
     sync();
@@ -345,7 +361,7 @@ export async function renderWorkDayDetailView(params: {
     let endDateMillis = dateMillis;
 
     const modal = openModal({
-      title: editingLog ? 'Modifica Orari' : 'Aggiungi Bracciante',
+      title: editingLog ? 'Modifica orario' : 'Inserimento orario',
       headerActionHtml: '<button type="button" class="btn btn-ghost btn-icon" title="Guida">?</button>',
       onHeaderAction: () => onOpenHelp('modifica_orari'),
     });
