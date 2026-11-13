@@ -18,7 +18,7 @@ import {
   type WorkerRegistryState,
 } from './ui/screens/workerRegistryView';
 import { renderYearSelectionView } from './ui/screens/yearSelectionView';
-import { createToastController, openModal } from './ui/utils';
+import { createToastController, formatDateTime, openModal } from './ui/utils';
 
 type MainTab = 'DAILY' | 'SUMMARY' | 'WORKERS' | 'OTHERS';
 
@@ -28,6 +28,12 @@ function defaultDateForYear(yearId: number): number {
     return toLocalMidnightMillis(now);
   }
   return new Date(yearId, 0, 1).getTime();
+}
+
+function formatImportDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return 'nessun import';
+  const ts = parseBackupHeaderDate(dateStr);
+  return ts !== null ? formatDateTime(ts) : dateStr;
 }
 
 export async function renderApp(): Promise<HTMLElement> {
@@ -285,6 +291,7 @@ export async function renderApp(): Promise<HTMLElement> {
           onOpenHelp: (topic) => showHelpDialog(topic),
           onDataChanged: async () => {
             await checkBackupReminder();
+            await renderChrome();
           },
         });
       } else {
@@ -341,6 +348,9 @@ export async function renderApp(): Promise<HTMLElement> {
         }
         await renderCurrentRoute();
       },
+      onRefreshChrome: async () => {
+        await renderChrome();
+      },
     });
   };
 
@@ -365,7 +375,7 @@ export async function renderApp(): Promise<HTMLElement> {
         p1.innerHTML = `<strong>È necessario procedere all'import dei dati.</strong>`;
         const p2 = document.createElement('p');
         p2.className = 'modal-text';
-        p2.innerHTML = `Su Google Drive è presente un file di backup più recente (<strong>${latest.headerDate ?? latest.name}</strong>) rispetto alla versione su questo dispositivo (${settings.lastImportDate ?? 'nessun import'}).`;
+        p2.innerHTML = `Su Google Drive è presente un file di backup più recente (<strong>${formatImportDate(latest.headerDate)}</strong>) rispetto alla versione su questo dispositivo (${formatImportDate(settings.lastImportDate)}).`;
         const p3 = document.createElement('p');
         p3.className = 'modal-text muted small-note';
         p3.textContent = 'Se non effettui l’import, l’applicazione rimarrà in sola visualizzazione per proteggere i dati da modifiche disallineate.';

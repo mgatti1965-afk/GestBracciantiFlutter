@@ -15,8 +15,22 @@ export async function renderOthersView(params: {
   repo: AppRepository;
   toast: ToastController;
   onDatabaseChanged: () => Promise<void>;
+  onRefreshChrome?: () => Promise<void>;
 }): Promise<void> {
-  const { container, repo, toast, onDatabaseChanged } = params;
+  const { container, repo, toast, onDatabaseChanged, onRefreshChrome } = params;
+
+  const refreshSelf = async () => {
+    if (onRefreshChrome) {
+      await onRefreshChrome();
+    }
+    await renderOthersView(params);
+  };
+
+  const formatImportDate = (dateStr: string | null | undefined): string => {
+    if (!dateStr) return 'Nessuno';
+    const ts = parseBackupHeaderDate(dateStr);
+    return ts !== null ? formatDateTime(ts) : dateStr;
+  };
 
   const [settings, backups, hasUnexported] = await Promise.all([
     repo.getSettings(),
@@ -87,6 +101,9 @@ export async function renderOthersView(params: {
       ownerName: newName,
     });
     toast.show('Dati titolare salvati.');
+    if (onRefreshChrome) {
+      await onRefreshChrome();
+    }
   };
   ownerSurnameIn.addEventListener('change', saveOwner);
   ownerNameIn.addEventListener('change', saveOwner);
@@ -107,6 +124,9 @@ export async function renderOthersView(params: {
     }
     await repo.saveSettings({ extraHoursThreshold: val });
     toast.show(`Soglia straordinari impostata a ${val} ore.`);
+    if (onRefreshChrome) {
+      await onRefreshChrome();
+    }
   });
 
   const updateFestiveDays = async () => {
@@ -116,6 +136,9 @@ export async function renderOthersView(params: {
     }
     await repo.saveSettings({ festiveDaysType: newType });
     toast.show('Calendario festivi aggiornato.');
+    if (onRefreshChrome) {
+      await onRefreshChrome();
+    }
   };
   satCheck.addEventListener('change', updateFestiveDays);
   sunCheck.addEventListener('change', updateFestiveDays);
@@ -196,7 +219,7 @@ export async function renderOthersView(params: {
     <div class="sync-info-grid">
       <div class="sync-info-item">
         <span class="sync-info-label">Data Ultimo Import</span>
-        <span class="sync-info-value">${escapeHtml(settings.lastImportDate ?? 'Nessuno')}</span>
+        <span class="sync-info-value">${escapeHtml(formatImportDate(settings.lastImportDate))}</span>
       </div>
       <div class="sync-info-item">
         <span class="sync-info-label">Data Ultima Modifica</span>
@@ -218,7 +241,7 @@ export async function renderOthersView(params: {
     try {
       await googleDriveService.signIn();
       toast.show('Collegamento a Google Drive effettuato con successo!');
-      await renderOthersView(params);
+      await refreshSelf();
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Errore connessione Google Drive', true);
     }
@@ -227,7 +250,7 @@ export async function renderOthersView(params: {
   syncCard.querySelector('#drive-disconnect-btn')?.addEventListener('click', async () => {
     googleDriveService.clearSession();
     toast.show('Disconnesso da Google Drive.');
-    await renderOthersView(params);
+    await refreshSelf();
   });
 
   // Export Button (con controllo di sicurezza cloud)
@@ -242,7 +265,7 @@ export async function renderOthersView(params: {
           if (cloudTimestamp !== null && localImportTimestamp !== null && cloudTimestamp > localImportTimestamp) {
             showConfirmDialog({
               title: 'Export Bloccato: Serve Allineamento',
-              message: `Impossibile procedere con l'Export: su Google Drive è presente un backup più recente (${latestCloud.headerDate}) rispetto alla data del tuo archivio (${settings.lastImportDate}).\n\nÈ necessario procedere prima all'import dei dati per non sovrascrivere le modifiche apportate da un altro dispositivo.`,
+              message: `Impossibile procedere con l'Export: su Google Drive è presente un backup più recente (${formatImportDate(latestCloud.headerDate)}) rispetto alla data del tuo archivio (${formatImportDate(settings.lastImportDate)}).\n\nÈ necessario procedere prima all'import dei dati per non sovrascrivere le modifiche apportate da un altro dispositivo.`,
               confirmLabel: 'Ho capito',
               cancelLabel: '',
               onConfirm: () => {},
@@ -260,6 +283,7 @@ export async function renderOthersView(params: {
           await googleDriveService.uploadBackupFile(filename, csvContent);
           toast.show('Backup scaricato e salvato su Google Drive!');
         } catch (uploadErr) {
+          await repo.recordMutation();
           toast.show(
             `Backup scaricato in locale, ma errore nel caricamento su Drive: ${
               uploadErr instanceof Error ? uploadErr.message : String(uploadErr)
@@ -271,7 +295,7 @@ export async function renderOthersView(params: {
         toast.show('Dati esportati e salvati nella cronologia locale!');
       }
 
-      await renderOthersView(params);
+      await refreshSelf();
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Errore durante l’esportazione.', true);
     }
@@ -288,7 +312,7 @@ export async function renderOthersView(params: {
       }
       showConfirmDialog({
         title: 'Importa Backup da Google Drive',
-        message: `Verrà scaricato e importato il backup "${latest.name}" (Data: ${latest.headerDate ?? 'sconosciuta'}). Questa operazione sostituirà i dati attuali con quelli del cloud (verrà prima salvato un backup automatico interno). Confermi?`,
+        message: `Verrà scaricato e importato il backup "${latest.name}" (Data: ${formatImportDate(latest.headerDate)}). Questa operazione sostituirà i dati attuali con quelli del cloud (verrà prima salvato un backup automatico interno). Confermi?`,
         confirmLabel: 'Conferma Import',
         danger: true,
         onConfirm: async () => {
@@ -319,7 +343,7 @@ export async function renderOthersView(params: {
       if (cloudTimestamp !== null && (localImportTimestamp === null || cloudTimestamp > localImportTimestamp)) {
         showConfirmDialog({
           title: 'Serve Allineamento dal Cloud',
-          message: `Su Google Drive è presente un file più recente:\n\n• File Cloud: "${latest.name}"\n• Data Cloud: ${latest.headerDate ?? 'Sconosciuta'}\n• Data Locale: ${settings.lastImportDate ?? 'Nessun import'}\n\nÈ necessario procedere all'import per allineare questo dispositivo.`,
+          message: `Su Google Drive è presente un file più recente:\n\n• File Cloud: "${latest.name}"\n• Data Cloud: ${formatImportDate(latest.headerDate)}\n• Data Locale: ${formatImportDate(settings.lastImportDate)}\n\nÈ necessario procedere all'import per allineare questo dispositivo.`,
           confirmLabel: 'Importa Ora da Drive',
           cancelLabel: 'Chiudi',
           onConfirm: async () => {
@@ -331,7 +355,7 @@ export async function renderOthersView(params: {
       } else if (unexported) {
         toast.show('Il cloud è allineato all’ultimo import, ma hai nuove modifiche locali. Clicca su "Esporta Backup" per salvarle su Drive.');
       } else {
-        toast.show(`Archivio già allineato! Ultimo backup cloud: ${latest.headerDate ?? latest.name}`);
+        toast.show(`Archivio già allineato! Ultimo backup cloud: ${formatImportDate(latest.headerDate)}`);
       }
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Errore verifica Google Drive.', true);
