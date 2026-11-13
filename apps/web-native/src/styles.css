@@ -1410,6 +1410,10 @@ h3 {
   gap: 0.5rem;
 }
 
+.banner-readonly[hidden] {
+  display: none;
+}
+
 .banner-readonly .banner-btn {
   background: #856404;
   color: #fff;

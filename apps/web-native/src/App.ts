@@ -154,6 +154,7 @@ export async function renderApp(): Promise<HTMLElement> {
       });
     } else {
       readOnlyBanner.hidden = true;
+      readOnlyBanner.innerHTML = '';
     }
 
     if (!currentYear) {
