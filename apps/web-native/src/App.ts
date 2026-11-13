@@ -326,6 +326,7 @@ export async function renderApp(): Promise<HTMLElement> {
           repo,
           toast,
           state: dailyState,
+          isReadOnly: isReadOnlyDueToAlignment,
           onOpenDayDetail: async (dateMillis) => {
             activeDayDetailDate = dateMillis;
             summaryState.referenceDate = dateMillis;
@@ -377,67 +378,138 @@ export async function renderApp(): Promise<HTMLElement> {
       onRefreshChrome: async () => {
         await renderChrome();
       },
+      onDriveSignedIn: async () => {
+        await verifyCloudAlignment({ showAlignedToast: true });
+      },
     });
   };
 
-  const checkDriveAlignmentOnStartup = async () => {
-    if (!googleDriveService.isSignedIn()) {
+  const verifyCloudAlignment = async (opts?: { showAlignedToast?: boolean }) => {
+    const settings = await repo.getSettings();
+    const latest = await googleDriveService.getLatestBackupFile();
+    if (!latest) {
+      if (isReadOnlyDueToAlignment) {
+        isReadOnlyDueToAlignment = false;
+        await renderCurrentRoute();
+      }
+      if (opts?.showAlignedToast) {
+        toast.show('Nessun backup trovato su Google Drive: puoi procedere.');
+      }
       return;
     }
-    try {
-      const settings = await repo.getSettings();
-      const latest = await googleDriveService.getLatestBackupFile();
-      if (!latest) return;
-      const cloudTimestamp = latest.headerTimestamp;
-      const localImportTimestamp = parseBackupHeaderDate(settings.lastImportDate);
-      if (cloudTimestamp !== null && (localImportTimestamp === null || cloudTimestamp > localImportTimestamp)) {
-        isReadOnlyDueToAlignment = true;
-        activeTab = 'OTHERS';
-        await renderCurrentRoute();
 
-        const modal = openModal({ title: 'Allineamento Dati Richiesto' });
-        const p1 = document.createElement('p');
-        p1.className = 'modal-text';
-        p1.innerHTML = `<strong>È necessario procedere all'import dei dati.</strong>`;
-        const p2 = document.createElement('p');
-        p2.className = 'modal-text';
-        p2.innerHTML = `Su Google Drive è presente un file di backup più recente (<strong>${formatImportDate(latest.headerDate)}</strong>) rispetto alla versione su questo dispositivo (${formatImportDate(settings.lastImportDate)}).`;
-        const p3 = document.createElement('p');
-        p3.className = 'modal-text muted small-note';
-        p3.textContent = 'Se non effettui l’import, l’applicazione rimarrà in sola visualizzazione per proteggere i dati da modifiche disallineate.';
-        modal.body.append(p1, p2, p3);
+    const cloudTimestamp = latest.headerTimestamp;
+    const localImportTimestamp = parseBackupHeaderDate(settings.lastImportDate);
 
-        const importBtn = document.createElement('button');
-        importBtn.type = 'button';
-        importBtn.className = 'btn btn-primary';
-        importBtn.textContent = 'Importa da Drive Ora';
-        importBtn.addEventListener('click', async () => {
+    if (cloudTimestamp !== null && (localImportTimestamp === null || cloudTimestamp > localImportTimestamp)) {
+      isReadOnlyDueToAlignment = true;
+      activeTab = 'OTHERS';
+      await renderCurrentRoute();
+
+      const modal = openModal({ title: 'Allineamento Dati Richiesto' });
+      const p1 = document.createElement('p');
+      p1.className = 'modal-text';
+      p1.innerHTML = `<strong>È necessario procedere all'import dei dati.</strong>`;
+      const p2 = document.createElement('p');
+      p2.className = 'modal-text';
+      p2.innerHTML = `Su Google Drive è presente un file di backup più recente (<strong>${formatImportDate(latest.headerDate)}</strong>) rispetto alla versione su questo dispositivo (${formatImportDate(settings.lastImportDate)}).`;
+      const p3 = document.createElement('p');
+      p3.className = 'modal-text muted small-note';
+      p3.textContent = 'Se non effettui l’import, l’applicazione rimarrà in sola visualizzazione (solo consultazione e stampe) per proteggere i dati.';
+      modal.body.append(p1, p2, p3);
+
+      const importBtn = document.createElement('button');
+      importBtn.type = 'button';
+      importBtn.className = 'btn btn-primary';
+      importBtn.textContent = 'Importa da Drive Ora';
+      importBtn.addEventListener('click', async () => {
+        importBtn.disabled = true;
+        try {
+          const res = await repo.importFullBackup(latest.content);
+          isReadOnlyDueToAlignment = false;
           modal.close();
-          try {
-            const res = await repo.importFullBackup(latest.content);
-            isReadOnlyDueToAlignment = false;
-            toast.show(`Dati importati dal cloud: ${res.years} annate, ${res.workers} braccianti, ${res.logs} log.`);
-            currentYear = await repo.getCurrentYear();
-            if (currentYear) {
-              syncYearStates(currentYear.id);
-              activeTab = 'DAILY';
-            }
-            await renderCurrentRoute();
-          } catch (e) {
-            toast.show('Errore importazione: ' + (e instanceof Error ? e.message : String(e)), true);
+          toast.show(`Dati importati dal cloud: ${res.years} annate, ${res.workers} braccianti, ${res.logs} log.`);
+          currentYear = await repo.getCurrentYear();
+          if (currentYear) {
+            syncYearStates(currentYear.id);
+            activeTab = 'DAILY';
           }
-        });
+          await renderCurrentRoute();
+        } catch (e) {
+          toast.show('Errore importazione: ' + (e instanceof Error ? e.message : String(e)), true);
+        } finally {
+          importBtn.disabled = false;
+        }
+      });
 
-        const viewOnlyBtn = document.createElement('button');
-        viewOnlyBtn.type = 'button';
-        viewOnlyBtn.className = 'btn btn-ghost';
-        viewOnlyBtn.textContent = 'Visualizza Soltanto';
-        viewOnlyBtn.addEventListener('click', () => modal.close());
+      const viewOnlyBtn = document.createElement('button');
+      viewOnlyBtn.type = 'button';
+      viewOnlyBtn.className = 'btn btn-ghost';
+      viewOnlyBtn.textContent = 'Visualizza Soltanto';
+      viewOnlyBtn.addEventListener('click', () => modal.close());
 
-        modal.footer.append(viewOnlyBtn, importBtn);
+      modal.footer.append(viewOnlyBtn, importBtn);
+      return;
+    }
+
+    if (isReadOnlyDueToAlignment) {
+      isReadOnlyDueToAlignment = false;
+      await renderCurrentRoute();
+    }
+    if (opts?.showAlignedToast) {
+      toast.show('Dati allineati con Google Drive: puoi procedere.');
+    }
+  };
+
+  const checkDriveAlignmentOnStartup = async () => {
+    if (googleDriveService.isSignedIn()) {
+      try {
+        await verifyCloudAlignment({ showAlignedToast: false });
+      } catch {
+        // Ignora errori di rete all'avvio se offline
       }
-    } catch {
-      // Ignora errori di rete all'avvio
+      return;
+    }
+
+    if (googleDriveService.hasPreviouslyConnected()) {
+      isReadOnlyDueToAlignment = true;
+      await renderCurrentRoute();
+
+      const modal = openModal({ title: 'Verifica Google Drive Richiesta' });
+      const p1 = document.createElement('p');
+      p1.className = 'modal-text';
+      p1.textContent =
+        'Prima di modificare i dati è necessario verificare se su Google Drive è presente un backup più recente.';
+      const p2 = document.createElement('p');
+      p2.className = 'modal-text muted small-note';
+      p2.textContent =
+        'Se preferisci non collegarti ora, tutte le variazioni resteranno bloccate (attive solo visualizzazione e stampe).';
+      modal.body.append(p1, p2);
+
+      const verifyBtn = document.createElement('button');
+      verifyBtn.type = 'button';
+      verifyBtn.className = 'btn btn-primary';
+      verifyBtn.textContent = 'Connetti e Verifica Drive';
+      verifyBtn.addEventListener('click', async () => {
+        verifyBtn.disabled = true;
+        try {
+          await googleDriveService.signIn();
+          modal.close();
+          await verifyCloudAlignment({ showAlignedToast: true });
+        } catch (err) {
+          toast.show(err instanceof Error ? err.message : 'Errore connessione Google Drive', true);
+        } finally {
+          verifyBtn.disabled = false;
+        }
+      });
+
+      const viewOnlyBtn = document.createElement('button');
+      viewOnlyBtn.type = 'button';
+      viewOnlyBtn.className = 'btn btn-ghost';
+      viewOnlyBtn.textContent = 'Visualizza Soltanto';
+      viewOnlyBtn.addEventListener('click', () => modal.close());
+
+      modal.footer.append(viewOnlyBtn, verifyBtn);
     }
   };
 

@@ -20,6 +20,7 @@ export async function renderDailyLoggingView(params: {
   repo: AppRepository;
   toast: ToastController;
   state: DailyLoggingState;
+  isReadOnly?: boolean;
   onOpenDayDetail: (dateMillis: number) => void;
 }): Promise<void> {
   const { container, repo, toast, state, onOpenDayDetail } = params;
@@ -176,6 +177,10 @@ export async function renderDailyLoggingView(params: {
 
       cell.addEventListener('contextmenu', async (event) => {
         event.preventDefault();
+        if (params.isReadOnly) {
+          toast.show('Sola visualizzazione: è necessario allineare i dati da Varie.', true);
+          return;
+        }
         const res = await repo.toggleGlobalHolidayForDate(cellDate, state.yearId);
         const msg = res.isOverridden
           ? res.affectedCount > 0

@@ -16,8 +16,9 @@ export async function renderOthersView(params: {
   toast: ToastController;
   onDatabaseChanged: () => Promise<void>;
   onRefreshChrome?: () => Promise<void>;
+  onDriveSignedIn?: () => Promise<void>;
 }): Promise<void> {
-  const { container, repo, toast, onDatabaseChanged, onRefreshChrome } = params;
+  const { container, repo, toast, onDatabaseChanged, onRefreshChrome, onDriveSignedIn } = params;
 
   const refreshSelf = async () => {
     if (onRefreshChrome) {
@@ -244,8 +245,11 @@ export async function renderOthersView(params: {
     driveConnectBtn.disabled = true;
     try {
       await googleDriveService.signIn();
-      toast.show('Collegamento a Google Drive effettuato con successo!');
+      toast.show('Collegamento a Google Drive effettuato! Verifica allineamento...');
       await refreshSelf();
+      if (onDriveSignedIn) {
+        await onDriveSignedIn();
+      }
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Errore connessione Google Drive', true);
     } finally {
@@ -258,8 +262,11 @@ export async function renderOthersView(params: {
     driveSwitchBtn.disabled = true;
     try {
       await googleDriveService.signIn(undefined, { selectAccount: true });
-      toast.show('Collegamento a Google Drive effettuato con successo!');
+      toast.show('Collegamento a Google Drive effettuato! Verifica allineamento...');
       await refreshSelf();
+      if (onDriveSignedIn) {
+        await onDriveSignedIn();
+      }
     } catch (err) {
       toast.show(err instanceof Error ? err.message : 'Errore connessione Google Drive', true);
     } finally {

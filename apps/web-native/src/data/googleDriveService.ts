@@ -91,8 +91,8 @@ export class GoogleDriveService {
   }
 
   getAccessToken(): string | null {
-    const token = sessionStorage.getItem(TOKEN_STORAGE_KEY);
-    const expiryStr = sessionStorage.getItem(EXPIRY_STORAGE_KEY);
+    const token = localStorage.getItem(TOKEN_STORAGE_KEY) || sessionStorage.getItem(TOKEN_STORAGE_KEY);
+    const expiryStr = localStorage.getItem(EXPIRY_STORAGE_KEY) || sessionStorage.getItem(EXPIRY_STORAGE_KEY);
     if (!token || !expiryStr) {
       return null;
     }
@@ -105,11 +105,15 @@ export class GoogleDriveService {
   }
 
   getUserEmail(): string | null {
-    return sessionStorage.getItem(EMAIL_STORAGE_KEY) || localStorage.getItem(LAST_EMAIL_STORAGE_KEY);
+    return localStorage.getItem(EMAIL_STORAGE_KEY) || localStorage.getItem(LAST_EMAIL_STORAGE_KEY);
   }
 
   getLastUserEmail(): string | null {
-    return localStorage.getItem(LAST_EMAIL_STORAGE_KEY) || sessionStorage.getItem(EMAIL_STORAGE_KEY);
+    return localStorage.getItem(LAST_EMAIL_STORAGE_KEY) || localStorage.getItem(EMAIL_STORAGE_KEY);
+  }
+
+  hasPreviouslyConnected(): boolean {
+    return Boolean(this.getLastUserEmail());
   }
 
   isSignedIn(): boolean {
@@ -117,7 +121,10 @@ export class GoogleDriveService {
   }
 
   clearSession(forgetAccount: boolean = false): void {
-    const token = sessionStorage.getItem(TOKEN_STORAGE_KEY);
+    const token = localStorage.getItem(TOKEN_STORAGE_KEY) || sessionStorage.getItem(TOKEN_STORAGE_KEY);
+    localStorage.removeItem(TOKEN_STORAGE_KEY);
+    localStorage.removeItem(EXPIRY_STORAGE_KEY);
+    localStorage.removeItem(EMAIL_STORAGE_KEY);
     sessionStorage.removeItem(TOKEN_STORAGE_KEY);
     sessionStorage.removeItem(EXPIRY_STORAGE_KEY);
     sessionStorage.removeItem(EMAIL_STORAGE_KEY);
@@ -145,7 +152,7 @@ export class GoogleDriveService {
     await this.loadGisScript();
 
     const savedEmail = !options?.selectAccount
-      ? localStorage.getItem(LAST_EMAIL_STORAGE_KEY) || sessionStorage.getItem(EMAIL_STORAGE_KEY)
+      ? localStorage.getItem(LAST_EMAIL_STORAGE_KEY) || localStorage.getItem(EMAIL_STORAGE_KEY)
       : null;
 
     return new Promise((resolve, reject) => {
@@ -162,8 +169,8 @@ export class GoogleDriveService {
             }
             const expiresIn = resp.expires_in ?? 3600;
             const expiry = Date.now() + expiresIn * 1000;
-            sessionStorage.setItem(TOKEN_STORAGE_KEY, resp.access_token);
-            sessionStorage.setItem(EXPIRY_STORAGE_KEY, String(expiry));
+            localStorage.setItem(TOKEN_STORAGE_KEY, resp.access_token);
+            localStorage.setItem(EXPIRY_STORAGE_KEY, String(expiry));
 
             let userEmail: string | null = null;
             try {
@@ -174,7 +181,7 @@ export class GoogleDriveService {
                 const info = (await infoRes.json()) as { email?: string };
                 userEmail = info.email ?? null;
                 if (userEmail) {
-                  sessionStorage.setItem(EMAIL_STORAGE_KEY, userEmail);
+                  localStorage.setItem(EMAIL_STORAGE_KEY, userEmail);
                   localStorage.setItem(LAST_EMAIL_STORAGE_KEY, userEmail);
                 }
               }
