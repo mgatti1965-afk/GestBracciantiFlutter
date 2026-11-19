@@ -1,7 +1,7 @@
 {
   "name": "GestBraccianti",
   "short_name": "GestBraccianti",
-  "description": "Gestione orari e compensi braccianti agricoli",
+  "description": "Gestione orari e compensi",
   "start_url": "./",
   "display": "standalone",
   "background_color": "#1b4332",
