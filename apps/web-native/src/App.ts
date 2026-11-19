@@ -69,7 +69,34 @@ export async function renderApp(): Promise<HTMLElement> {
   let activeDayDetailDate: number | null = null;
   let backupReminderShown = false;
   let isReadOnlyDueToAlignment = false;
+  let hasPendingExport = false;
   let alignmentGeneration = 0;
+
+  window.addEventListener('beforeunload', (e) => {
+    if (!hasPendingExport) {
+      return;
+    }
+    e.preventDefault();
+    e.returnValue = '';
+
+    // Se l'utente clicca "Annulla" nel popup del browser, il timer viene eseguito
+    // al ripristino della pagina e lo porta su Varie -> Esporta Backup CSV.
+    window.setTimeout(() => {
+      if (!currentYear || !hasPendingExport) {
+        return;
+      }
+      activeTab = 'OTHERS';
+      activeDayDetailDate = null;
+      void renderCurrentRoute().then(() => {
+        const exportBtn = mainContent.querySelector<HTMLButtonElement>('#export-backup-btn');
+        if (exportBtn) {
+          exportBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          exportBtn.focus();
+        }
+        toast.show('Esporta il backup per salvare le modifiche prima di uscire.');
+      });
+    }, 0);
+  });
 
   const dailyState: DailyLoggingState = {
     yearId: currentYear?.id ?? new Date().getFullYear(),
@@ -157,11 +184,13 @@ export async function renderApp(): Promise<HTMLElement> {
       readOnlyBanner.innerHTML = '';
     }
 
+    hasPendingExport = await repo.hasUnexportedChanges();
+
     if (!currentYear) {
       return;
     }
 
-    const hasUnexported = await repo.hasUnexportedChanges();
+    const hasUnexported = hasPendingExport;
 
     topBar.innerHTML = `
       <div class="topbar-inner">

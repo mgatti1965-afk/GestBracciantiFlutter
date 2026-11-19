@@ -188,7 +188,7 @@ export async function renderOthersView(params: {
 
     <!-- Pulsanti Principali -->
     <div class="two-col-grid" style="margin-bottom: 0.75rem;">
-      <button type="button" class="btn btn-primary" id="export-backup-btn">
+      <button type="button" class="btn ${hasUnexported ? 'btn-danger' : 'btn-primary'}" id="export-backup-btn">
         📤 Esporta Backup CSV
       </button>
 
