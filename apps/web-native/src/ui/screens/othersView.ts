@@ -3,9 +3,9 @@ import { googleDriveService } from '../../data/googleDriveService';
 import { parseBackupHeaderDate } from '../../domain/backupCsv';
 import type { FestiveDaysType } from '../../domain/calc';
 import {
-  downloadTextFile,
   escapeHtml,
   formatDateTime,
+  saveTextFileLocally,
   showConfirmDialog,
   type ToastController,
 } from '../utils';
@@ -309,21 +309,27 @@ export async function renderOthersView(params: {
       if (googleDriveService.isSignedIn()) {
         try {
           await googleDriveService.uploadBackupFile(csvContent);
-          downloadTextFile(filename, csvContent);
-          toast.show('Backup salvato su Google Drive e scaricato in Download!');
+          const localResult = await saveTextFileLocally(filename, csvContent);
+          toast.show(
+            localResult === 'cancelled'
+              ? 'Backup salvato su Google Drive (salvataggio locale annullato).'
+              : 'Backup salvato su Google Drive e in locale!',
+          );
         } catch (uploadErr) {
           await repo.recordMutation();
-          downloadTextFile(filename, csvContent);
+          await saveTextFileLocally(filename, csvContent);
           toast.show(
-            `Backup scaricato in Download, ma errore nel caricamento su Drive: ${
+            `Backup salvato in locale, ma errore nel caricamento su Drive: ${
               uploadErr instanceof Error ? uploadErr.message : String(uploadErr)
             }`,
             true,
           );
         }
       } else {
-        downloadTextFile(filename, csvContent);
-        toast.show('Backup scaricato in Download e salvato nella cronologia locale!');
+        const localResult = await saveTextFileLocally(filename, csvContent);
+        if (localResult !== 'cancelled') {
+          toast.show('Backup salvato in locale e nella cronologia interna!');
+        }
       }
 
       await refreshSelf();
@@ -478,9 +484,11 @@ export async function renderOthersView(params: {
           <button type="button" class="btn-icon-danger" data-action="delete" title="Elimina backup">🗑</button>
         </div>
       `;
-      row.querySelector('[data-action="download"]')?.addEventListener('click', () => {
-        downloadTextFile(item.filename, item.csvContent);
-        toast.show('Backup scaricato.');
+      row.querySelector('[data-action="download"]')?.addEventListener('click', async () => {
+        const localResult = await saveTextFileLocally(item.filename, item.csvContent);
+        if (localResult !== 'cancelled') {
+          toast.show('Backup scaricato.');
+        }
       });
       row.querySelector('[data-action="restore"]')?.addEventListener('click', () => {
         showConfirmDialog({

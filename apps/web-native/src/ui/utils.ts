@@ -85,6 +85,56 @@ export function downloadTextFile(filename: string, content: string): void {
   URL.revokeObjectURL(url);
 }
 
+interface SaveFilePickerWindow {
+  showSaveFilePicker?: (options?: {
+    suggestedName?: string;
+    types?: Array<{
+      description?: string;
+      accept: Record<string, string[]>;
+    }>;
+  }) => Promise<{
+    createWritable(): Promise<{
+      write(data: string): Promise<void>;
+      close(): Promise<void>;
+    }>;
+  }>;
+}
+
+/**
+ * Salva un file CSV in locale usando File System Access API su desktop (per
+ * permettere la sovrascrittura dello stesso file) con fallback al download classico.
+ */
+export async function saveTextFileLocally(
+  filename: string,
+  content: string,
+): Promise<'saved' | 'downloaded' | 'cancelled'> {
+  const picker = (window as unknown as SaveFilePickerWindow).showSaveFilePicker;
+  if (typeof picker === 'function') {
+    try {
+      const handle = await picker({
+        suggestedName: filename,
+        types: [
+          {
+            description: 'File CSV',
+            accept: { 'text/csv': ['.csv'] },
+          },
+        ],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(content);
+      await writable.close();
+      return 'saved';
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        return 'cancelled';
+      }
+      // Es. SecurityError se la user-activation è scaduta dopo chiamate async: fallback al download classico
+    }
+  }
+  downloadTextFile(filename, content);
+  return 'downloaded';
+}
+
 export interface ToastController {
   show(message: string, isError?: boolean): void;
 }

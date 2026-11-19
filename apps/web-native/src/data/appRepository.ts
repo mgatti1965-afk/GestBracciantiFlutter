@@ -28,6 +28,7 @@ import {
   type WorkerYearConfig,
 } from '../domain/models';
 import { sortLogsByDateDesc, type WorkLog } from '../domain/workLog';
+import { DRIVE_BACKUP_FILE_NAME } from './driveConfig';
 import {
   requestToPromise,
   STORE_BACKUPS,
@@ -861,7 +862,7 @@ export class AppRepository {
     const dataset = await this.readFullDataset();
     const csvContent = exportAndroidBackupCsv(dataset, exportDate);
     const headerDate = formatBackupHeaderDate(exportDate);
-    const filename = `GestBraccianti_Bkp_${formatBackupTimestamp(exportDate)}.csv`;
+    const filename = DRIVE_BACKUP_FILE_NAME;
 
     if (saveInHistory) {
       await withTransaction([STORE_BACKUPS, STORE_SETTINGS], 'readwrite', async (tx) => {
