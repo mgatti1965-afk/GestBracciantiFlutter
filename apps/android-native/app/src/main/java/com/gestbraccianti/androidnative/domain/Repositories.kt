@@ -6,7 +6,8 @@ interface HarvestYearRepository {
 }
 
 interface WorkerRepository {
-  fun workersForYear(yearId: Int): List<Worker>
+  fun allWorkers(): List<Worker>
+  fun workersForYear(yearId: Int): List<WorkerWithRate>
 }
 
 interface WorkLogRepository {
